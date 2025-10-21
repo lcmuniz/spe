@@ -43,6 +43,16 @@ async function auditLog(req, { acao, usuarioLogin, entidade, entidadeId, detalhe
     const user_agent = (req.headers['user-agent'] || '').toString()
     const rota = req.originalUrl || req.url
 
+    // Sanitiza detalhes para evitar campos nulos indesejados (ex.: cargo)
+    let detalhesOut = detalhes
+    if (detalhes && typeof detalhes === 'object' && !Array.isArray(detalhes)) {
+      const d = { ...detalhes }
+      if (d.cargo === null || d.cargo === undefined || d.cargo === '') {
+        delete d.cargo
+      }
+      detalhesOut = d
+    }
+
     await query(
       `INSERT INTO auditoria (id, acao, usuario_login, entidade, entidade_id, detalhes, ip, user_agent, rota)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -52,7 +62,7 @@ async function auditLog(req, { acao, usuarioLogin, entidade, entidadeId, detalhe
         usuarioLogin || null,
         entidade || null,
         entidadeId || null,
-        detalhes || null,
+        detalhesOut || null,
         ip,
         user_agent,
         rota,
@@ -448,17 +458,16 @@ app.post('/api/processos', async (req, res) => {
         .status(400)
         .json({ error: 'Base legal é obrigatória para acesso restrito/sigiloso' })
     }
-    if (!documentosIds || documentosIds.length === 0) {
-      return res.status(400).json({ error: 'Ao menos 1 documento é obrigatório' })
-    }
+    // documentosIds agora é opcional; criação sem documentos iniciais permitida
 
     const numero = genNumero()
     const id = uuidv4()
+    const criadorLogin = req.body.executadoPor || req.body.usuario || null
 
     await query('BEGIN')
     await query(
-      `INSERT INTO processos (id, numero, assunto, tipo, nivel_acesso, base_legal, observacoes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO processos (id, numero, assunto, tipo, nivel_acesso, base_legal, observacoes, atribuido_usuario)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         id,
         numero,
@@ -467,6 +476,7 @@ app.post('/api/processos', async (req, res) => {
         nivelAcesso || 'Público',
         baseLegal || null,
         observacoes || '',
+        criadorLogin || null,
       ],
     )
 
@@ -512,6 +522,7 @@ app.post('/api/processos', async (req, res) => {
       status: 'Em instrução',
       prioridade: 'Normal',
       criadoEm: new Date().toISOString(),
+      atribuidoA: criadorLogin || null,
     }
 
     await auditLog(req, {
@@ -539,7 +550,14 @@ app.get('/api/processos/:id', async (req, res) => {
       [id],
     )
     if (rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
-    res.json(rows[0])
+
+    const { rows: partes } = await query(
+      `SELECT id, tipo, nome, documento, papel FROM processo_partes WHERE processo_id = $1 ORDER BY id`,
+      [id],
+    )
+    const result = { ...rows[0], partes }
+
+    res.json(result)
   } catch (e) {
     console.error('Erro em GET /api/processos/:id', e)
     res.status(500).json({ error: 'Erro ao carregar processo' })
@@ -603,6 +621,74 @@ app.post('/api/processos/:id/dados', async (req, res) => {
   } catch (e) {
     console.error('Erro em POST /api/processos/:id/dados', e)
     res.status(500).json({ error: 'Erro ao atualizar dados do processo' })
+  }
+})
+
+// POST /api/processos/:id/partes
+app.post('/api/processos/:id/partes', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { tipo, nome, documento, papel, executadoPor, usuario } = req.body || {}
+    if (!nome) return res.status(400).json({ error: 'Nome da parte é obrigatório' })
+
+    // Verifica existência do processo
+    const { rows: procRows } = await query(`SELECT id FROM processos WHERE id = $1`, [id])
+    if (procRows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+
+    const parteId = uuidv4()
+    await query(
+      `INSERT INTO processo_partes (id, processo_id, tipo, nome, documento, papel)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [parteId, id, tipo || null, nome, documento || null, papel || null],
+    )
+
+    await auditLog(req, {
+      acao: 'processo.parte.criar',
+      usuarioLogin: executadoPor || usuario || null,
+      entidade: 'processo',
+      entidadeId: id,
+      detalhes: { parteId, tipo, nome, documento, papel },
+    })
+
+    const { rows } = await query(
+      `SELECT id, tipo, nome, documento, papel FROM processo_partes WHERE id = $1`,
+      [parteId],
+    )
+    res.status(201).json({ ok: true, parte: rows[0] })
+  } catch (e) {
+    console.error('Erro em POST /api/processos/:id/partes', e)
+    res.status(500).json({ error: 'Erro ao adicionar parte' })
+  }
+})
+
+// DELETE /api/processos/:id/partes/:parteId
+app.delete('/api/processos/:id/partes/:parteId', async (req, res) => {
+  try {
+    const { id, parteId } = req.params
+    const { executadoPor, usuario } = req.body || {}
+
+    // Confere vinculação da parte ao processo
+    const { rows } = await query(
+      `SELECT id, nome FROM processo_partes WHERE id = $1 AND processo_id = $2`,
+      [parteId, id],
+    )
+    if (rows.length === 0)
+      return res.status(404).json({ error: 'Parte não encontrada neste processo' })
+
+    await query(`DELETE FROM processo_partes WHERE id = $1`, [parteId])
+
+    await auditLog(req, {
+      acao: 'processo.parte.deletar',
+      usuarioLogin: executadoPor || usuario || null,
+      entidade: 'processo',
+      entidadeId: id,
+      detalhes: { parteId, nome: rows[0].nome },
+    })
+
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('Erro em DELETE /api/processos/:id/partes/:parteId', e)
+    res.status(500).json({ error: 'Erro ao remover parte' })
   }
 })
 

@@ -7,6 +7,7 @@ const routes = [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('pages/DashboardPage.vue') },
       { path: 'protocolo', component: () => import('pages/ProtocoloPage.vue') },
+      { path: 'consultar', component: () => import('pages/ConsultarPage.vue') },
       { path: 'processo/:id', component: () => import('pages/ProcessoViewPage.vue') },
     ],
   },

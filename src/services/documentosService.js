@@ -37,8 +37,9 @@ export async function createDocumento({ titulo, tipo, modo, autorLogin, autorNom
   return data
 }
 
-export async function linkDocumentoToProcesso(processoId, documentoId) {
-  const { data } = await api.post(`/processos/${processoId}/documentos/link`, { documentoId })
+export async function linkDocumentoToProcesso(processoId, documentoId, usuarioLogin) {
+  const payload = { documentoId, usuarioLogin }
+  const { data } = await api.post(`/processos/${processoId}/documentos/link`, payload)
   return data
 }
 

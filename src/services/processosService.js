@@ -50,3 +50,16 @@ export async function criarProcesso(payload) {
   const { data } = await api.post('/processos', payload)
   return data
 }
+
+export async function adicionarParte(id, { tipo, nome, documento, papel, executadoPor }) {
+  const payload = { tipo, nome, documento, papel, executadoPor }
+  const { data } = await api.post(`/processos/${id}/partes`, payload)
+  return data
+}
+
+export async function removerParte(id, parteId, { executadoPor } = {}) {
+  const { data } = await api.delete(`/processos/${id}/partes/${parteId}`, {
+    data: { executadoPor },
+  })
+  return data
+}

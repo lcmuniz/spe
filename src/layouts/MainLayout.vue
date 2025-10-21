@@ -1,5 +1,5 @@
 <template>
-  <q-layout view="lHh Lpr lFf">
+  <q-layout view="hHh Lpr lFf">
     <q-header elevated v-if="authStore.isAuthenticated">
       <q-toolbar>
         <q-btn flat dense round icon="menu" aria-label="Menu" @click="toggleLeftDrawer" />
@@ -77,8 +77,6 @@
 
         <q-separator />
 
-        <q-item-label header class="text-grey-7"> Processos </q-item-label>
-
         <q-item
           clickable
           v-ripple
@@ -89,20 +87,16 @@
             <q-icon name="add_circle" />
           </q-item-section>
           <q-item-section>
-            <q-item-label>Protocolo</q-item-label>
+            <q-item-label>Novo Processo</q-item-label>
           </q-item-section>
         </q-item>
 
-        <q-item clickable v-ripple @click="$q.notify('Em desenvolvimento')">
-          <q-item-section avatar>
-            <q-icon name="inbox" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>Minha Caixa</q-item-label>
-          </q-item-section>
-        </q-item>
-
-        <q-item clickable v-ripple @click="$q.notify('Em desenvolvimento')">
+        <q-item
+          clickable
+          v-ripple
+          @click="$router.push('/consultar')"
+          :class="$route.path === '/consultar' ? 'bg-primary text-white' : ''"
+        >
           <q-item-section avatar>
             <q-icon name="search" />
           </q-item-section>
@@ -197,7 +191,7 @@ watch(
       leftDrawerOpen.value = false
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 function toggleLeftDrawer() {

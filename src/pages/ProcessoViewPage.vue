@@ -2,7 +2,7 @@
   <q-page>
     <q-splitter v-model="splitterModel" :style="{ height: 'calc(100vh - 120px)' }">
       <template #before>
-        <div class="q-pa-md">
+        <div class="q-pa-sm">
           <div v-if="processo" class="text-subtitle1 q-mb-sm text-bold">{{ processo.numero }}</div>
           <div v-else class="text-subtitle1 q-mb-sm">Documentos</div>
           <q-tree
@@ -158,32 +158,7 @@
           <q-separator class="q-my-sm" />
 
           <!-- Área principal: dados do processo ou documento selecionado -->
-          <q-card-section v-if="selectedKey === 'processo' && processo">
-            <div class="row q-col-gutter-md">
-              <div class="col-12 col-md-4">
-                <q-input v-model="processo.numero" label="Número (NUP)" readonly />
-              </div>
-              <div class="col-12 col-md-8">
-                <q-input v-model="dadosForm.assunto" label="Assunto" />
-              </div>
-            </div>
-            <div class="row q-col-gutter-md q-mt-sm">
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="dadosForm.nivelAcesso"
-                  :options="nivelOptions"
-                  label="Nível de Acesso"
-                />
-              </div>
-              <div class="col-12 col-md-8">
-                <q-input v-model="dadosForm.observacoes" label="Observações" type="textarea" />
-              </div>
-            </div>
-            <div class="row q-col-gutter-md q-mt-sm" v-if="isBaseLegalRequired">
-              <div class="col-12">
-                <q-input v-model="dadosForm.baseLegal" label="Base legal" />
-              </div>
-            </div>
+          <q-card-section v-if="selectedKey === 'processo' && processo" class="q-pa-sm">
             <div class="row q-mt-sm justify-end q-gutter-sm">
               <q-btn flat label="Cancelar" color="primary" @click="cancelarDados" />
               <q-btn
@@ -194,12 +169,95 @@
                 @click="salvarDados"
               />
             </div>
-            <div class="row q-col-gutter-md q-mt-sm">
-              <div class="col-12 col-md-6">
-                <q-input v-model="processo.atribuidoA" label="Atribuído a" readonly />
+
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-4">
+                <q-input v-model="processo.numero" label="Número (NUP)" readonly dense />
               </div>
-              <div class="col-12 col-md-6">
-                <q-input v-model="processo.prioridade" label="Prioridade" readonly />
+              <div class="col-12 col-md-8">
+                <q-input v-model="dadosForm.assunto" label="Assunto" dense />
+              </div>
+            </div>
+            <div class="row q-col-gutter-md q-mt-sm">
+              <div class="col-12 col-md-4">
+                <q-input v-model="processo.atribuidoA" label="Atribuído a" readonly dense />
+              </div>
+              <div class="col-12 col-md-4">
+                <q-input v-model="processo.prioridade" label="Prioridade" readonly dense />
+              </div>
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="dadosForm.nivelAcesso"
+                  :options="nivelOptions"
+                  label="Nível de Acesso"
+                  dense
+                />
+              </div>
+            </div>
+
+            <div class="row q-col-gutter-md q-mt-sm">
+              <div class="col-12 col-md-12">
+                <q-input
+                  v-model="dadosForm.observacoes"
+                  label="Observações"
+                  type="textarea"
+                  dense
+                  rows="3"
+                />
+              </div>
+            </div>
+            <div class="row q-col-gutter-md q-mt-sm" v-if="isBaseLegalRequired">
+              <div class="col-12">
+                <q-input v-model="dadosForm.baseLegal" label="Base legal" dense />
+              </div>
+            </div>
+
+            <q-separator class="q-my-md" />
+            <div class="row">
+              <div class="col-12">
+                <div class="text-subtitle1 q-mb-sm">Interessados/Partes</div>
+                <div class="row q-mb-sm">
+                  <div class="col-12">
+                    <q-btn
+                      dense
+                      unelevated
+                      color="primary"
+                      icon="person_add"
+                      label="Adicionar parte"
+                      :disable="!podeEditarPartes"
+                      @click="abrirParteDialog"
+                    />
+                  </div>
+                </div>
+                <q-table
+                  flat
+                  bordered
+                  :rows="partes"
+                  :columns="partesColumns"
+                  row-key="id"
+                  hide-bottom
+                  :pagination="{ rowsPerPage: 5 }"
+                >
+                  <template #body-cell-documento="props">
+                    <q-td :props="props">
+                      <span v-if="props.value">{{ props.value }}</span>
+                      <span v-else class="text-grey">—</span>
+                    </q-td>
+                  </template>
+                  <template #body-cell-actions="props">
+                    <q-td :props="props">
+                      <q-btn
+                        flat
+                        round
+                        dense
+                        icon="delete"
+                        color="negative"
+                        :disable="!podeEditarPartes"
+                        @click="removerParteRow(props.row)"
+                      />
+                    </q-td>
+                  </template>
+                </q-table>
               </div>
             </div>
           </q-card-section>
@@ -486,6 +544,26 @@
             </q-card-actions>
           </q-card>
         </q-dialog>
+
+        <!-- Diálogo: Adicionar parte -->
+        <q-dialog v-model="parteDialogOpen">
+          <q-card style="min-width: 500px">
+            <q-card-section>
+              <div class="text-h6">Adicionar parte</div>
+              <div class="text-caption">Informe os dados da parte</div>
+            </q-card-section>
+            <q-card-section class="q-gutter-md">
+              <q-select v-model="parteForm.tipo" :options="tipoOptions" label="Tipo" />
+              <q-input v-model="parteForm.nome" label="Nome" />
+              <q-input v-model="parteForm.documento" label="Documento (CPF/CNPJ)" />
+              <q-select v-model="parteForm.papel" :options="papelOptions" label="Papel" />
+            </q-card-section>
+            <q-card-actions align="right">
+              <q-btn flat label="Cancelar" v-close-popup />
+              <q-btn color="primary" label="Adicionar" @click="confirmarParte" />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
       </template>
     </q-splitter>
   </q-page>
@@ -514,6 +592,8 @@ import {
   atribuirProcesso,
   atualizarPrioridade,
   listarTramites,
+  removerParte,
+  adicionarParte,
 } from 'src/services/processosService'
 import { listarSetores } from 'src/services/catalogService'
 import { listarUsuarios } from 'src/services/usuariosService'
@@ -528,6 +608,17 @@ const splitterModel = ref(25)
 const selectedKey = ref('processo')
 const selectedDoc = ref(null)
 
+// Partes do processo
+const partes = ref([])
+const partesColumns = [
+  { name: 'tipo', label: 'Tipo', field: 'tipo' },
+  { name: 'nome', label: 'Nome', field: 'nome' },
+  { name: 'documento', label: 'Documento', field: 'documento' },
+  { name: 'papel', label: 'Papel', field: 'papel' },
+  { name: 'actions', label: 'Ações', field: 'id', align: 'right' },
+]
+const parteDialogOpen = ref(false)
+const parteForm = ref({ tipo: 'Cidadão', nome: '', documento: '', papel: 'Requerente' })
 const keycloak = inject('keycloak', null)
 function getUsuarioLogin() {
   return keycloak?.tokenParsed?.preferred_username || null
@@ -1001,6 +1092,7 @@ onMounted(async () => {
     const { id } = route.params
     const data = await getProcesso(id)
     processo.value = data
+    partes.value = Array.isArray(data.partes) ? data.partes : []
     // Inicializa formulário de edição dos dados do processo
     dadosForm.value = {
       assunto: String(data.assunto || ''),
@@ -1077,6 +1169,56 @@ const podeMarcarPrioridade = computed(() => {
   const me = getUsuarioLogin()
   return !!p && (!p.atribuidoA || p.atribuidoA === me)
 })
+const podeEditarPartes = computed(
+  () => !!processo.value && processo.value.atribuidoA === getUsuarioLogin(),
+)
+function abrirParteDialog() {
+  parteForm.value = { tipo: 'Cidadão', nome: '', documento: '', papel: 'Requerente' }
+  parteDialogOpen.value = true
+}
+
+async function confirmarParte() {
+  try {
+    if (!parteForm.value.nome) {
+      $q.notify({ type: 'warning', message: 'Informe o nome da parte' })
+      return
+    }
+    const { id } = route.params
+    const resp = await adicionarParte(id, {
+      tipo: parteForm.value.tipo,
+      papel: parteForm.value.papel,
+      nome: parteForm.value.nome,
+      documento: parteForm.value.documento || undefined,
+      executadoPor: getUsuarioLogin(),
+    })
+    const novaParte = resp?.parte || resp
+    partes.value = [...(partes.value || []), novaParte]
+    $q.notify({ type: 'positive', message: 'Parte adicionada' })
+    parteDialogOpen.value = false
+  } catch (e) {
+    console.error(e)
+    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao adicionar parte' })
+  }
+}
+
+function removerParteRow(row) {
+  $q.dialog({
+    title: 'Remover parte',
+    message: `Confirma remover "${row?.nome || 'parte'}"?`,
+    cancel: true,
+    ok: { label: 'Remover', color: 'negative' },
+  }).onOk(async () => {
+    try {
+      const { id } = route.params
+      await removerParte(id, row.id, { executadoPor: getUsuarioLogin() })
+      partes.value = partes.value.filter((p) => String(p.id) !== String(row.id))
+      $q.notify({ type: 'positive', message: 'Parte removida' })
+    } catch (e) {
+      console.error(e)
+      $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao remover parte' })
+    }
+  })
+}
 
 // Tramitar
 const tramitarDialogOpen = ref(false)
@@ -1267,7 +1409,7 @@ async function criarDocSubmit() {
     })
     // Primeiro vincula ao processo para satisfazer validações de árvore
     const procId = processo.value?.id || route.params.id
-    await linkDocumentoToProcesso(procId, doc.id)
+    await linkDocumentoToProcesso(procId, doc.id, getUsuarioLogin() || undefined)
 
     // Depois atualiza conteúdo conforme modo selecionado
     if (docCreateForm.value.modo === 'Upload' && docCreateForm.value.arquivo) {
