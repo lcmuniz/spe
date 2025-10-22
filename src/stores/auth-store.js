@@ -12,8 +12,21 @@ export const useAuthStore = defineStore('auth', {
 
   getters: {
     isAuthenticated: (state) => state.authenticated,
-    userName: (state) => state.user?.name || state.user?.preferred_username || 'Usuário',
-    userEmail: (state) => state.user?.email || '',
+    userName: (state) => {
+      const full = [state.user?.firstName, state.user?.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+      return (
+        full ||
+        state.user?.name ||
+        state.user?.preferred_username ||
+        keycloak?.tokenParsed?.name ||
+        keycloak?.tokenParsed?.preferred_username ||
+        'Usuário'
+      )
+    },
+    userEmail: (state) => state.user?.email || keycloak?.tokenParsed?.email || '',
     hasRole: (state) => (role) => state.roles.includes(role),
     isAdmin: (state) => state.roles.includes('admin') || state.roles.includes('administrador'),
     isServidor: (state) => state.roles.includes('servidor'),

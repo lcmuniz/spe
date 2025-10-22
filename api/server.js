@@ -22,10 +22,10 @@ initDb()
   })
 
 const sampleAssuntos = [
-  'Licitação',
+  'LicitaÃ§Ã£o',
   'Contratos',
   'Recursos Humanos',
-  'Transparência',
+  'TransparÃªncia',
   'Ouvidoria',
   'TI - Sistemas',
 ]
@@ -197,7 +197,7 @@ app.get('/api/usuarios', async (req, res) => {
         `SELECT login AS "username", setor, nome, cargo FROM usuarios WHERE login = $1`,
         [login],
       )
-      if (rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' })
+      if (rows.length === 0) return res.status(404).json({ error: 'UsuÃ¡rio nÃ£o encontrado' })
       return res.json(rows[0])
     }
 
@@ -215,7 +215,7 @@ app.get('/api/usuarios', async (req, res) => {
     res.json(rows)
   } catch (e) {
     console.error('Erro em GET /api/usuarios', e)
-    res.status(500).json({ error: 'Erro ao listar usuários' })
+    res.status(500).json({ error: 'Erro ao listar usuÃ¡rios' })
   }
 })
 
@@ -224,10 +224,10 @@ app.post('/api/usuarios/upsert', async (req, res) => {
   try {
     const { login, nome, setor, cargo } = req.body
     if (!login) {
-      return res.status(400).json({ error: 'Login é obrigatório' })
+      return res.status(400).json({ error: 'Login Ã© obrigatÃ³rio' })
     }
 
-    // Verifica se já existe usuário para decidir regra de setor
+    // Verifica se jÃ¡ existe usuÃ¡rio para decidir regra de setor
     const { rows: existing } = await query(`SELECT login, setor FROM usuarios WHERE login = $1`, [
       login,
     ])
@@ -236,7 +236,7 @@ app.post('/api/usuarios/upsert', async (req, res) => {
     const cargoVal = cargo || null
 
     if (existing.length > 0) {
-      // Atualiza preservando setor existente quando não informado
+      // Atualiza preservando setor existente quando nÃ£o informado
       const setorVal =
         setor !== undefined && setor !== null && setor !== '' ? setor : existing[0].setor
 
@@ -265,9 +265,9 @@ app.post('/api/usuarios/upsert', async (req, res) => {
       return res.json({ ok: true, usuario: rows[0] })
     }
 
-    // Novo usuário: setor é obrigatório para respeitar NOT NULL do schema
+    // Novo usuÃ¡rio: setor Ã© obrigatÃ³rio para respeitar NOT NULL do schema
     if (!setor) {
-      return res.status(400).json({ error: 'Setor é obrigatório para novo usuário' })
+      return res.status(400).json({ error: 'Setor Ã© obrigatÃ³rio para novo usuÃ¡rio' })
     }
 
     const { rows } = await query(
@@ -292,7 +292,7 @@ app.post('/api/usuarios/upsert', async (req, res) => {
     return res.json({ ok: true, usuario: rows[0] })
   } catch (e) {
     console.error('Erro em POST /api/usuarios/upsert', e)
-    res.status(500).json({ error: 'Erro ao atualizar/cadastrar usuário' })
+    res.status(500).json({ error: 'Erro ao atualizar/cadastrar usuÃ¡rio' })
   }
 })
 
@@ -303,42 +303,42 @@ app.post('/api/processos/:id/atribuir', async (req, res) => {
     const { usuario, executadoPor } = req.body
 
     if (!usuario) {
-      return res.status(400).json({ error: 'Usuário de destino é obrigatório' })
+      return res.status(400).json({ error: 'UsuÃ¡rio de destino Ã© obrigatÃ³rio' })
     }
     if (!executadoPor) {
-      return res.status(400).json({ error: 'Usuário executor é obrigatório' })
+      return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio' })
     }
 
-    // Verifica setor atual do processo e responsável atual
+    // Verifica setor atual do processo e responsÃ¡vel atual
     const proc = await query(`SELECT setor_atual, atribuido_usuario FROM processos WHERE id = $1`, [
       id,
     ])
-    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
     const setorAtual = String(proc.rows[0].setor_atual || '').toUpperCase()
     const atualAtribuido = proc.rows[0].atribuido_usuario || null
 
-    // Regra: só pode atribuir se o processo estiver atribuído ao executor ou sem responsável
+    // Regra: sÃ³ pode atribuir se o processo estiver atribuÃ­do ao executor ou sem responsÃ¡vel
     if (atualAtribuido && String(atualAtribuido) !== String(executadoPor)) {
       return res
         .status(403)
-        .json({ error: 'Você só pode atribuir processos atribuídos a você ou sem responsável' })
+        .json({ error: 'VocÃª sÃ³ pode atribuir processos atribuÃ­dos a vocÃª ou sem responsÃ¡vel' })
     }
 
-    // Valida se o usuário de destino pertence ao mesmo setor via banco
+    // Valida se o usuÃ¡rio de destino pertence ao mesmo setor via banco
     const { rows: urows } = await query(`SELECT setor FROM usuarios WHERE login = $1`, [usuario])
     if (urows.length === 0) {
-      return res.status(400).json({ error: 'Usuário não encontrado' })
+      return res.status(400).json({ error: 'UsuÃ¡rio nÃ£o encontrado' })
     }
     const setorUsuario = String(urows[0].setor || '').toUpperCase()
     if (setorUsuario !== setorAtual.toUpperCase()) {
-      return res.status(400).json({ error: 'Usuário não pertence ao setor atual do processo' })
+      return res.status(400).json({ error: 'UsuÃ¡rio nÃ£o pertence ao setor atual do processo' })
     }
 
     const { rowCount } = await query(`UPDATE processos SET atribuido_usuario = $1 WHERE id = $2`, [
       usuario || null,
       id,
     ])
-    if (rowCount === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (rowCount === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     const { rows } = await query(
       `SELECT id, numero, assunto, status, prioridade, prazo, nivel_acesso AS "nivelAcesso", setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao" FROM processos WHERE id = $1`,
@@ -367,19 +367,19 @@ app.post('/api/processos/:id/tramites', async (req, res) => {
     const { destinoSetor, usuario, motivo, prioridade, prazo } = req.body
 
     if (!usuario) {
-      return res.status(400).json({ error: 'Usuário executor é obrigatório' })
+      return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio' })
     }
 
     const { rows: procRows } = await query(
       `SELECT setor_atual, atribuido_usuario FROM processos WHERE id = $1`,
       [id],
     )
-    if (procRows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (procRows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
     const origem = procRows[0].setor_atual
     const atribuidoAtual = procRows[0].atribuido_usuario
 
     if (String(atribuidoAtual || '') !== String(usuario)) {
-      return res.status(403).json({ error: 'Você só pode tramitar processos atribuídos a você' })
+      return res.status(403).json({ error: 'VocÃª sÃ³ pode tramitar processos atribuÃ­dos a vocÃª' })
     }
 
     const tramiteId = uuidv4()
@@ -452,13 +452,13 @@ app.post('/api/processos', async (req, res) => {
       documentosIds = [],
     } = req.body
 
-    if (!assunto) return res.status(400).json({ error: 'Assunto é obrigatório' })
-    if (nivelAcesso && nivelAcesso !== 'Público' && !baseLegal) {
+    if (!assunto) return res.status(400).json({ error: 'Assunto Ã© obrigatÃ³rio' })
+    if (nivelAcesso && nivelAcesso !== 'PÃºblico' && !baseLegal) {
       return res
         .status(400)
-        .json({ error: 'Base legal é obrigatória para acesso restrito/sigiloso' })
+        .json({ error: 'Base legal Ã© obrigatÃ³ria para acesso restrito/sigiloso' })
     }
-    // documentosIds agora é opcional; criação sem documentos iniciais permitida
+    // documentosIds agora Ã© opcional; criaÃ§Ã£o sem documentos iniciais permitida
 
     const numero = genNumero()
     const id = uuidv4()
@@ -473,7 +473,7 @@ app.post('/api/processos', async (req, res) => {
         numero,
         assunto,
         tipo || 'Processo',
-        nivelAcesso || 'Público',
+        nivelAcesso || 'PÃºblico',
         baseLegal || null,
         observacoes || '',
         criadorLogin || null,
@@ -514,12 +514,12 @@ app.post('/api/processos', async (req, res) => {
       numero,
       assunto,
       tipo: tipo || 'Processo',
-      nivelAcesso: nivelAcesso || 'Público',
+      nivelAcesso: nivelAcesso || 'PÃºblico',
       baseLegal: baseLegal || null,
       observacoes: observacoes || '',
       interessado: interessadoRow.rows[0]?.nome || null,
       setor: 'PROTOCOLO',
-      status: 'Em instrução',
+      status: 'Em instruÃ§Ã£o',
       prioridade: 'Normal',
       criadoEm: new Date().toISOString(),
       atribuidoA: criadorLogin || null,
@@ -549,7 +549,7 @@ app.get('/api/processos/:id', async (req, res) => {
       `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao" FROM processos WHERE id = $1`,
       [id],
     )
-    if (rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     const { rows: partes } = await query(
       `SELECT id, tipo, nome, documento, papel FROM processo_partes WHERE processo_id = $1 ORDER BY id`,
@@ -570,22 +570,22 @@ app.post('/api/processos/:id/dados', async (req, res) => {
     const { id } = req.params
     const { assunto, nivelAcesso, observacoes, baseLegal } = req.body
 
-    // Carrega dados atuais para validar base legal quando necessário
+    // Carrega dados atuais para validar base legal quando necessÃ¡rio
     const { rows: procRows } = await query(
       `SELECT nivel_acesso, base_legal FROM processos WHERE id = $1`,
       [id],
     )
-    if (procRows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (procRows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     const atualNivel = procRows[0].nivel_acesso
     const atualBaseLegal = procRows[0].base_legal
     const novoNivel = nivelAcesso || atualNivel
     const novaBaseLegal = baseLegal !== undefined ? baseLegal : atualBaseLegal
 
-    if (novoNivel !== 'Público' && !novaBaseLegal) {
+    if (novoNivel !== 'PÃºblico' && !novaBaseLegal) {
       return res
         .status(400)
-        .json({ error: 'Base legal é obrigatória para acesso restrito/sigiloso' })
+        .json({ error: 'Base legal Ã© obrigatÃ³ria para acesso restrito/sigiloso' })
     }
 
     await query(
@@ -629,11 +629,11 @@ app.post('/api/processos/:id/partes', async (req, res) => {
   try {
     const { id } = req.params
     const { tipo, nome, documento, papel, executadoPor, usuario } = req.body || {}
-    if (!nome) return res.status(400).json({ error: 'Nome da parte é obrigatório' })
+    if (!nome) return res.status(400).json({ error: 'Nome da parte Ã© obrigatÃ³rio' })
 
-    // Verifica existência do processo
+    // Verifica existÃªncia do processo
     const { rows: procRows } = await query(`SELECT id FROM processos WHERE id = $1`, [id])
-    if (procRows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (procRows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     const parteId = uuidv4()
     await query(
@@ -667,13 +667,13 @@ app.delete('/api/processos/:id/partes/:parteId', async (req, res) => {
     const { id, parteId } = req.params
     const { executadoPor, usuario } = req.body || {}
 
-    // Confere vinculação da parte ao processo
+    // Confere vinculaÃ§Ã£o da parte ao processo
     const { rows } = await query(
       `SELECT id, nome FROM processo_partes WHERE id = $1 AND processo_id = $2`,
       [parteId, id],
     )
     if (rows.length === 0)
-      return res.status(404).json({ error: 'Parte não encontrada neste processo' })
+      return res.status(404).json({ error: 'Parte nÃ£o encontrada neste processo' })
 
     await query(`DELETE FROM processo_partes WHERE id = $1`, [parteId])
 
@@ -701,9 +701,9 @@ app.get('/api/processos/:id/documentos', async (req, res) => {
 
     // Descobre o setor atual do processo
     const { rows: procRows } = await query(`SELECT setor_atual FROM processos WHERE id = $1`, [id])
-    if (procRows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (procRows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
-    // Nova regra: rascunhos visíveis APENAS para o setor do autor.
+    // Nova regra: rascunhos visÃ­veis APENAS para o setor do autor.
     // Se viewerSetor ausente, mostrar somente assinados.
     const filterByViewer = viewerSetor
       ? "AND (LOWER(d.status) = 'assinado' OR (LOWER(d.status) <> 'assinado' AND UPPER(u.setor) = $2))"
@@ -744,13 +744,13 @@ app.post('/api/processos/:id/documentos/link', async (req, res) => {
   try {
     const { id } = req.params
     const { documentoId } = req.body
-    if (!documentoId) return res.status(400).json({ error: 'documentoId é obrigatório' })
+    if (!documentoId) return res.status(400).json({ error: 'documentoId Ã© obrigatÃ³rio' })
 
     const proc = await query(`SELECT id FROM processos WHERE id = $1`, [id])
-    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     const doc = await query(`SELECT id FROM documentos WHERE id = $1`, [documentoId])
-    if (doc.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (doc.rows.length === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
 
     await query(
       `INSERT INTO processo_documentos (processo_id, documento_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -778,7 +778,7 @@ app.post('/api/processos/:id/documentos/seed', async (req, res) => {
     const { id } = req.params
 
     const proc = await query(`SELECT id FROM processos WHERE id = $1`, [id])
-    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     await query('BEGIN')
 
@@ -796,10 +796,10 @@ app.post('/api/processos/:id/documentos/seed', async (req, res) => {
         tipo: 'Documento',
         modo: 'Editor',
         status: 'rascunho',
-        conteudo: 'Despacho\n\nVistos, etc. Providencie-se conforme instruções.',
+        conteudo: 'Despacho\n\nVistos, etc. Providencie-se conforme instruÃ§Ãµes.',
       },
       {
-        titulo: 'Ofício',
+        titulo: 'OfÃ­cio',
         tipo: 'Documento',
         modo: 'Upload',
         status: 'rascunho',
@@ -864,7 +864,7 @@ app.post('/api/processos/by-numero/:numero/documentos/sample-media', async (req,
   try {
     const { numero } = req.params
     const proc = await query(`SELECT id FROM processos WHERE numero = $1`, [numero])
-    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
     const processoId = proc.rows[0].id
 
     // Base64 de PNG 1x1 transparente
@@ -938,7 +938,7 @@ app.post('/api/processos/by-numero/:numero/documentos/sample-media', async (req,
   } catch (e) {
     await query('ROLLBACK').catch(() => {})
     console.error('Erro em POST /api/processos/by-numero/:numero/documentos/sample-media', e)
-    res.status(500).json({ error: 'Erro ao criar documentos de mídia de exemplo' })
+    res.status(500).json({ error: 'Erro ao criar documentos de mÃ­dia de exemplo' })
   }
 })
 
@@ -946,7 +946,7 @@ app.post('/api/processos/by-numero/:numero/documentos/sample-media', async (req,
 app.post('/api/documentos', async (req, res) => {
   try {
     const { titulo, tipo, modo, autorLogin } = req.body
-    if (!titulo) return res.status(400).json({ error: 'Título é obrigatório' })
+    if (!titulo) return res.status(400).json({ error: 'TÃ­tulo Ã© obrigatÃ³rio' })
     const id = uuidv4()
     await query(
       `INSERT INTO documentos (id, titulo, tipo, modo, status, autor_login) VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -987,11 +987,11 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
       `SELECT status, assinado_por_login FROM documentos WHERE id = $1`,
       [id],
     )
-    if (drows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (drows.length === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
     const statusAtual = String(drows[0].status || '').toLowerCase()
     const assinante = drows[0].assinado_por_login || null
 
-    // Regras de edição conforme posição na árvore (fim da árvore)
+    // Regras de ediÃ§Ã£o conforme posiÃ§Ã£o na Ã¡rvore (fim da Ã¡rvore)
     if (statusAtual === 'rascunho') {
       const { rows: prows } = await query(
         `SELECT p.id AS "processoId", p.atribuido_usuario AS "atribuidoUsuario"
@@ -1002,7 +1002,7 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
         [id],
       )
       if (prows.length === 0) {
-        return res.status(400).json({ error: 'Documento não está vinculado a um processo' })
+        return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ vinculado a um processo' })
       }
       const processoId = prows[0].processoId
       const { rows: vrows } = await query(`SELECT setor FROM usuarios WHERE login = $1`, [
@@ -1034,7 +1034,7 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
       if (!(indexDoc >= endStart)) {
         return res
           .status(403)
-          .json({ error: 'Rascunho só pode ser editado se estiver no fim da árvore' })
+          .json({ error: 'Rascunho sÃ³ pode ser editado se estiver no fim da Ã¡rvore' })
       }
     }
 
@@ -1042,7 +1042,7 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
       if (!usuarioLogin) {
         return res
           .status(400)
-          .json({ error: 'Usuário executor é obrigatório para editar documento assinado' })
+          .json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio para editar documento assinado' })
       }
       const { rows: prows } = await query(
         `SELECT p.id AS "processoId", p.atribuido_usuario AS "atribuidoUsuario"
@@ -1053,17 +1053,17 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
         [id],
       )
       if (prows.length === 0) {
-        return res.status(400).json({ error: 'Documento não está vinculado a um processo' })
+        return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ vinculado a um processo' })
       }
       const processoId = prows[0].processoId
       const atribuidoUsuario = String(prows[0].atribuidoUsuario || '')
       if (!atribuidoUsuario) {
-        return res.status(400).json({ error: 'Processo não está atribuído a nenhum usuário' })
+        return res.status(400).json({ error: 'Processo nÃ£o estÃ¡ atribuÃ­do a nenhum usuÃ¡rio' })
       }
       if (atribuidoUsuario !== usuarioLogin) {
         return res
           .status(403)
-          .json({ error: 'Você só pode editar documentos do processo atribuído a você' })
+          .json({ error: 'VocÃª sÃ³ pode editar documentos do processo atribuÃ­do a vocÃª' })
       }
 
       const { rows: vrows } = await query(`SELECT setor FROM usuarios WHERE login = $1`, [
@@ -1095,7 +1095,7 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
       if (!(indexDoc >= endStart)) {
         return res
           .status(403)
-          .json({ error: 'Documento assinado só pode ser editado se estiver no fim da árvore' })
+          .json({ error: 'Documento assinado sÃ³ pode ser editado se estiver no fim da Ã¡rvore' })
       }
     }
 
@@ -1110,7 +1110,7 @@ app.post('/api/documentos/:id/upload', async (req, res) => {
       usuarioLogin || null,
       id,
     ])
-    if (rowCount === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (rowCount === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
 
     await auditLog(req, {
       acao: 'documento.upload_conteudo',
@@ -1139,16 +1139,18 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
       `SELECT status, assinado_por_login FROM documentos WHERE id = $1`,
       [id],
     )
-    if (drows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (drows.length === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
     const statusAtual = String(drows[0].status || '').toLowerCase()
     const assinante = drows[0].assinado_por_login || null
 
     if (statusAtual === 'rascunho') {
       if (!usuarioLogin) {
-        return res.status(400).json({ error: 'Usuário executor é obrigatório para editar rascunho' })
+        return res
+          .status(400)
+          .json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio para editar rascunho' })
       }
       const { rows: prows } = await query(
-        `SELECT p.id AS "processoId" 
+        `SELECT p.id AS "processoId"
            FROM processos p
            JOIN processo_documentos pd ON pd.processo_id = p.id
           WHERE pd.documento_id = $1
@@ -1156,7 +1158,7 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
         [id],
       )
       if (prows.length === 0) {
-        return res.status(400).json({ error: 'Documento não está vinculado a um processo' })
+        return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ vinculado a um processo' })
       }
       const processoId = prows[0].processoId
       const { rows: vrows } = await query(`SELECT setor FROM usuarios WHERE login = $1`, [
@@ -1187,7 +1189,7 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
       if (!(indexDoc >= endStart)) {
         return res
           .status(403)
-          .json({ error: 'Rascunho só pode ser editado se estiver no fim da árvore' })
+          .json({ error: 'Rascunho sÃ³ pode ser editado se estiver no fim da Ã¡rvore' })
       }
     }
 
@@ -1195,10 +1197,10 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
       if (!usuarioLogin) {
         return res
           .status(400)
-          .json({ error: 'Usuário executor é obrigatório para editar documento assinado' })
+          .json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio para editar documento assinado' })
       }
       if (usuarioLogin !== assinante) {
-        return res.status(403).json({ error: 'Você só pode editar documentos assinados por você' })
+        return res.status(403).json({ error: 'VocÃª sÃ³ pode editar documentos assinados por vocÃª' })
       }
       const { rows: prows } = await query(
         `SELECT p.id AS "processoId", p.atribuido_usuario AS "atribuidoUsuario"
@@ -1209,17 +1211,17 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
         [id],
       )
       if (prows.length === 0) {
-        return res.status(400).json({ error: 'Documento não está vinculado a um processo' })
+        return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ vinculado a um processo' })
       }
       const processoId = prows[0].processoId
       const atribuidoUsuario = String(prows[0].atribuidoUsuario || '')
       if (!atribuidoUsuario) {
-        return res.status(400).json({ error: 'Processo não está atribuído a nenhum usuário' })
+        return res.status(400).json({ error: 'Processo nÃ£o estÃ¡ atribuÃ­do a nenhum usuÃ¡rio' })
       }
       if (atribuidoUsuario !== usuarioLogin) {
         return res
           .status(403)
-          .json({ error: 'Você só pode editar documentos do processo atribuído a você' })
+          .json({ error: 'VocÃª sÃ³ pode editar documentos do processo atribuÃ­do a vocÃª' })
       }
       const { rows: vrows } = await query(`SELECT setor FROM usuarios WHERE login = $1`, [
         usuarioLogin,
@@ -1249,7 +1251,7 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
       if (!(indexDoc >= endStart)) {
         return res
           .status(403)
-          .json({ error: 'Documento assinado só pode ser editado se estiver no fim da árvore' })
+          .json({ error: 'Documento assinado sÃ³ pode ser editado se estiver no fim da Ã¡rvore' })
       }
     }
 
@@ -1259,7 +1261,7 @@ app.post('/api/documentos/:id/editor/conteudo', async (req, res) => {
         : `UPDATE documentos SET modo = 'Editor', conteudo = $1, autor_login = COALESCE($2, autor_login) WHERE id = $3`
 
     const { rowCount } = await query(sql, [conteudo || '', usuarioLogin || null, id])
-    if (rowCount === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (rowCount === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
 
     await auditLog(req, {
       acao: 'documento.editar_conteudo',
@@ -1302,7 +1304,7 @@ app.get('/api/documentos/:id', async (req, res) => {
        WHERE d.id = $1`,
       [id],
     )
-    if (rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (rows.length === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
     res.json(rows[0])
   } catch (e) {
     console.error('Erro em GET /api/documentos/:id', e)
@@ -1316,14 +1318,14 @@ app.post('/api/documentos/:id/assinar', async (req, res) => {
     const { id } = req.params
     const usuarioLogin = req.body.usuarioLogin || req.body.autorLogin || null
     if (!usuarioLogin) {
-      return res.status(400).json({ error: 'Usuário executor é obrigatório para assinar' })
+      return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio para assinar' })
     }
 
     const { rows: drows } = await query(
       `SELECT status, modo, file_name, content_base64 FROM documentos WHERE id = $1`,
       [id],
     )
-    if (drows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (drows.length === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
     const statusAtual = String(drows[0].status || '').toLowerCase()
     const modo = String(drows[0].modo || '')
     const fileName = String(drows[0].file_name || '')
@@ -1339,9 +1341,7 @@ app.post('/api/documentos/:id/assinar', async (req, res) => {
     }
     if (isUpload) {
       if (!fileName || !contentBase64) {
-        return res
-          .status(400)
-          .json({ error: 'Documento de Upload sem conteúdo para assinatura' })
+        return res.status(400).json({ error: 'Documento de Upload sem conteÃºdo para assinatura' })
       }
       const ext = (fileName.split('.').pop() || '').toLowerCase()
       const allowed = ['pdf', 'png', 'jpg', 'jpeg', 'gif']
@@ -1350,7 +1350,7 @@ app.post('/api/documentos/:id/assinar', async (req, res) => {
       }
     }
     if (statusAtual !== 'rascunho') {
-      return res.status(400).json({ error: 'Documento não está em rascunho' })
+      return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ em rascunho' })
     }
 
     const { rows: prows } = await query(
@@ -1362,20 +1362,20 @@ app.post('/api/documentos/:id/assinar', async (req, res) => {
       [id],
     )
     if (prows.length === 0) {
-      return res.status(400).json({ error: 'Documento não está vinculado a um processo' })
+      return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ vinculado a um processo' })
     }
     const processoId = prows[0].processoId
     const atribuidoUsuario = String(prows[0].atribuidoUsuario || '')
     if (!atribuidoUsuario) {
-      return res.status(400).json({ error: 'Processo não está atribuído a nenhum usuário' })
+      return res.status(400).json({ error: 'Processo nÃ£o estÃ¡ atribuÃ­do a nenhum usuÃ¡rio' })
     }
     if (atribuidoUsuario !== usuarioLogin) {
       return res
         .status(403)
-        .json({ error: 'Você só pode assinar documentos de processos atribuídos a você' })
+        .json({ error: 'VocÃª sÃ³ pode assinar documentos de processos atribuÃ­dos a vocÃª' })
     }
 
-    // Regra: rascunhos só podem ser assinados se estiverem no fim da árvore
+    // Regra: rascunhos sÃ³ podem ser assinados se estiverem no fim da Ã¡rvore
     const { rows: vrows } = await query(`SELECT setor FROM usuarios WHERE login = $1`, [
       usuarioLogin,
     ])
@@ -1404,7 +1404,7 @@ app.post('/api/documentos/:id/assinar', async (req, res) => {
     if (!(indexDoc >= endStart)) {
       return res.status(403).json({
         error:
-          'Rascunho não pode ser assinado: existe documento assinado de outro setor após ele no fluxo',
+          'Rascunho nÃ£o pode ser assinado: existe documento assinado de outro setor apÃ³s ele no fluxo',
       })
     }
 
@@ -1416,7 +1416,7 @@ app.post('/api/documentos/:id/assinar', async (req, res) => {
        WHERE id = $1`,
       [id, usuarioLogin],
     )
-    if (rowCount === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (rowCount === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
 
     const { rows } = await query(
       `SELECT d.id,
@@ -1461,27 +1461,27 @@ app.post('/api/documentos/:id/deletar', async (req, res) => {
   try {
     const { id } = req.params
     const usuarioLogin = req.body.usuarioLogin || req.body.autorLogin || null
-    if (!usuarioLogin) return res.status(400).json({ error: 'Usuário executor é obrigatório' })
+    if (!usuarioLogin) return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio' })
 
     const { rows: drows } = await query(
       `SELECT status, autor_login FROM documentos WHERE id = $1`,
       [id],
     )
-    if (drows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (drows.length === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
     const statusAtual = String(drows[0].status || '').toLowerCase()
     const autorLogin = drows[0].autor_login || null
 
     if (statusAtual === 'assinado') {
-      return res.status(400).json({ error: 'Documento assinado não pode ser excluído' })
+      return res.status(400).json({ error: 'Documento assinado nÃ£o pode ser excluÃ­do' })
     }
     if (statusAtual !== 'rascunho') {
-      return res.status(400).json({ error: 'Documento não está em rascunho' })
+      return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ em rascunho' })
     }
     if (!autorLogin || autorLogin !== usuarioLogin) {
-      return res.status(403).json({ error: 'Você só pode excluir documentos criados por você' })
+      return res.status(403).json({ error: 'VocÃª sÃ³ pode excluir documentos criados por vocÃª' })
     }
 
-    // Regra: rascunho só pode ser excluído se estiver no fim da árvore
+    // Regra: rascunho sÃ³ pode ser excluÃ­do se estiver no fim da Ã¡rvore
     const { rows: prows } = await query(
       `SELECT p.id AS "processoId"
          FROM processos p
@@ -1491,13 +1491,13 @@ app.post('/api/documentos/:id/deletar', async (req, res) => {
       [id],
     )
     if (prows.length === 0) {
-      return res.status(400).json({ error: 'Documento não está vinculado a um processo' })
+      return res.status(400).json({ error: 'Documento nÃ£o estÃ¡ vinculado a um processo' })
     }
     const processoId = prows[0].processoId
-    // Regra removida: permitir excluir rascunho em qualquer posição na árvore
+    // Regra removida: permitir excluir rascunho em qualquer posiÃ§Ã£o na Ã¡rvore
 
     const { rowCount } = await query(`DELETE FROM documentos WHERE id = $1`, [id])
-    if (rowCount === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    if (rowCount === 0) return res.status(404).json({ error: 'Documento nÃ£o encontrado' })
 
     await auditLog(req, {
       acao: 'documento.deletar',
@@ -1514,11 +1514,11 @@ app.post('/api/documentos/:id/deletar', async (req, res) => {
   }
 })
 
-// Auditoria (genérico)
+// Auditoria (genÃ©rico)
 app.post('/api/auditoria', async (req, res) => {
   try {
     const { acao, usuarioLogin, entidade, entidadeId, detalhes } = req.body
-    if (!acao) return res.status(400).json({ error: 'acao obrigatória' })
+    if (!acao) return res.status(400).json({ error: 'acao obrigatÃ³ria' })
     await auditLog(req, { acao, usuarioLogin, entidade, entidadeId, detalhes })
     res.json({ ok: true })
   } catch (e) {
@@ -1527,9 +1527,195 @@ app.post('/api/auditoria', async (req, res) => {
   }
 })
 
-// Saúde
+// SaÃºde
 app.get('/health', (_, res) => res.json({ status: 'ok' }))
 
+// Consulta pÃºblica agregada
+app.get('/api/public/consultas/:valor', async (req, res) => {
+  try {
+    const raw = req.params.valor || ''
+    const valor = decodeURIComponent(raw)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(valor)
+
+    let processo
+    if (!isUuid) {
+      const { rows } = await query(
+        `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
+           FROM processos p
+          WHERE numero = $1`,
+        [valor],
+      )
+      processo = rows[0]
+    } else {
+      const { rows } = await query(
+        `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao"
+           FROM processos
+          WHERE id = $1`,
+        [valor],
+      )
+      processo = rows[0]
+    }
+
+    if (!processo) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
+
+    const nivel = String(processo.nivelAcesso || '').toLowerCase()
+    if (!(nivel === 'público' || nivel === 'publico')) {
+      return res.status(403).json({ error: 'Processo restrito' })
+    }
+
+    const processoId = processo.id
+
+    const { rows: docsRows } = await query(
+      `SELECT d.id,
+              d.titulo,
+              d.tipo,
+              d.modo,
+              d.status,
+              d.file_name AS "fileName",
+              d.criado_em AS "criadoEm",
+              d.assinado_por_login AS "assinadoPorLogin",
+              a.nome AS "assinaturaNome",
+              a.cargo AS "assinaturaCargo",
+              a.setor AS "assinanteSetor"
+         FROM processo_documentos pd
+         JOIN documentos d ON d.id = pd.documento_id
+         LEFT JOIN usuarios a ON a.login = d.assinado_por_login
+        WHERE pd.processo_id = $1 AND LOWER(d.status) = 'assinado'
+        ORDER BY d.criado_em ASC`,
+      [processoId],
+    )
+
+    const { rows: tramitesRows } = await query(
+      `SELECT id,
+              origem_setor AS "origemSetor",
+              destino_setor AS "destinoSetor",
+              motivo,
+              prioridade,
+              prazo,
+              origem_usuario AS "usuario",
+              data
+         FROM tramites
+        WHERE processo_id = $1
+        ORDER BY data DESC`,
+      [processoId],
+    )
+
+    res.json({
+      capaPublica: {
+        id: processo.id,
+        numero: processo.numero,
+        assunto: processo.assunto,
+        status: processo.status,
+      },
+      andamentosPublicos: tramitesRows,
+      documentosPublicos: docsRows,
+    })
+  } catch (e) {
+    console.error('Erro em GET /api/public/consultas/:valor', e)
+    res.status(500).json({ error: 'Erro ao consultar processo pÃºblico' })
+  }
+})
+
+
+// Download público de documento em PDF
+app.get('/api/public/documentos/:id/pdf', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { rows } = await query(
+      `SELECT d.id, d.titulo, d.modo, d.status, d.file_name AS "fileName", d.content_base64 AS "contentBase64", d.conteudo,
+              p.id AS "processoId", p.nivel_acesso AS "nivelAcesso"
+         FROM documentos d
+         JOIN processo_documentos pd ON pd.documento_id = d.id
+         JOIN processos p ON p.id = pd.processo_id
+        WHERE d.id = $1
+        LIMIT 1`,
+      [id],
+    )
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' })
+    const d = rows[0]
+    if (String(d.status || '').toLowerCase() !== 'assinado') {
+      return res.status(403).json({ error: 'Documento não assinado' })
+    }
+    if (String(d.nivelAcesso || '') !== 'Público') {
+      return res.status(403).json({ error: 'Documento pertence a processo não público' })
+    }
+
+    const modo = String(d.modo || '').toLowerCase()
+    const titulo = d.titulo || 'documento'
+    const safeTitle = titulo.replace(/[^a-zA-Z0-9_-]+/g, '_')
+    let pdfBase64 = null
+    let outFileName = `${safeTitle}.pdf`
+
+    if (modo === 'upload') {
+      const fileName = d.fileName || ''
+      const ext = String(fileName.split('.').pop() || '').toLowerCase()
+      const base64 = d.contentBase64 || ''
+      if (!base64) return res.status(409).json({ error: 'Conteúdo indisponível' })
+      if (ext === 'pdf') {
+        // Fallback: alguns uploads vêm como CSV de bytes em vez de base64
+        const looksLikeCsvBytes = /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(base64)
+        if (looksLikeCsvBytes) {
+          const bytes = base64.split(',').map((n) => parseInt(n.trim(), 10))
+          pdfBase64 = Buffer.from(bytes).toString('base64')
+        } else {
+          pdfBase64 = base64
+        }
+        outFileName = fileName || outFileName
+      } else {
+        const mime =
+          ext === 'png' ? 'image/png' :
+          ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+          ext === 'gif' ? 'image/gif' :
+          ext === 'webp' ? 'image/webp' :
+          ext === 'svg' ? 'image/svg+xml' : null
+        if (!mime) return res.status(415).json({ error: 'Formato de upload não suportado para conversão em PDF' })
+
+        const puppeteer = require('puppeteer')
+        const browser = await puppeteer.launch()
+        try {
+          const page = await browser.newPage()
+          const html = `<!doctype html><html><head><meta charset="utf-8">
+            <style>html,body{margin:0;padding:0;height:100%}body{display:flex;align-items:center;justify-content:center}
+            img{max-width:100%;max-height:100%;object-fit:contain}</style></head>
+            <body><img src="data:${mime};base64,${base64}" /></body></html>`
+          await page.setContent(html, { waitUntil: 'networkidle0' })
+          const pdfBinary = await page.pdf({ format: 'A4', printBackground: true })
+          pdfBase64 = Buffer.from(pdfBinary).toString('base64')
+        } finally {
+          await browser.close().catch(() => {})
+        }
+      }
+    } else if (modo === 'editor') {
+      const conteudo = d.conteudo || ''
+      const isHtmlLike = /<\w+/.test(conteudo)
+      const bodyContent = isHtmlLike
+        ? conteudo
+        : `<div style="white-space:pre-wrap;font-family:Arial, sans-serif;font-size:12pt;line-height:1.4">${conteudo
+            .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</div>`
+      const puppeteer = require('puppeteer')
+      const browser = await puppeteer.launch()
+      try {
+        const page = await browser.newPage()
+        const html = `<!doctype html><html><head><meta charset="utf-8">
+          <style>body{margin:1cm;font-family:Arial, sans-serif;font-size:12pt;line-height:1.4}</style></head>
+          <body>${bodyContent}</body></html>`
+        await page.setContent(html, { waitUntil: 'networkidle0' })
+        const pdfBinary = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' } })
+        pdfBase64 = Buffer.from(pdfBinary).toString('base64')
+      } finally {
+        await browser.close().catch(() => {})
+      }
+    } else {
+      return res.status(415).json({ error: 'Modo de documento não suportado' })
+    }
+
+    res.json({ fileName: outFileName, contentBase64: pdfBase64 })
+  } catch (e) {
+    console.error('Erro em GET /api/public/documentos/:id/pdf', e)
+    res.status(500).json({ error: 'Falha ao gerar PDF do documento' })
+  }
+})
 app.listen(PORT, () => {
   console.log(`SPE API mock rodando em http://localhost:${PORT}`)
 })
@@ -1567,21 +1753,21 @@ app.post('/api/processos/:id/prioridade', async (req, res) => {
 
     const allowed = ['Baixa', 'Normal', 'Alta', 'Urgente']
     if (!prioridade || !allowed.includes(prioridade)) {
-      return res.status(400).json({ error: 'Prioridade inválida' })
+      return res.status(400).json({ error: 'Prioridade invÃ¡lida' })
     }
     if (!executadoPor) {
-      return res.status(400).json({ error: 'Usuário executor é obrigatório' })
+      return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio' })
     }
 
     const { rows: procRows } = await query(
       `SELECT atribuido_usuario FROM processos WHERE id = $1`,
       [id],
     )
-    if (procRows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (procRows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
     const atribuidoAtual = procRows[0].atribuido_usuario || null
     if (atribuidoAtual && String(atribuidoAtual) !== String(executadoPor)) {
       return res.status(403).json({
-        error: 'Você só pode definir prioridade de processos atribuídos a você ou sem responsável',
+        error: 'VocÃª sÃ³ pode definir prioridade de processos atribuÃ­dos a vocÃª ou sem responsÃ¡vel',
       })
     }
 
@@ -1589,7 +1775,7 @@ app.post('/api/processos/:id/prioridade', async (req, res) => {
       id,
       prioridade,
     ])
-    if (rowCount === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (rowCount === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
 
     const { rows } = await query(
       `SELECT id, numero, assunto, status, prioridade, prazo, nivel_acesso AS "nivelAcesso", setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao" FROM processos WHERE id = $1`,
@@ -1611,35 +1797,35 @@ app.post('/api/processos/:id/prioridade', async (req, res) => {
   }
 })
 
-// POST aceitar pendência
+// POST aceitar pendÃªncia
 app.post('/api/processos/:id/pendencia/aceitar', async (req, res) => {
   try {
     const { id } = req.params
     const { usuario } = req.body
     if (!usuario) {
-      return res.status(400).json({ error: 'Usuário executor é obrigatório' })
+      return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio' })
     }
 
     const proc = await query(
       `SELECT pendente, pendente_destino_setor, pendente_origem_setor, setor_atual FROM processos WHERE id = $1`,
       [id],
     )
-    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
     const pendente = !!proc.rows[0].pendente
     const destino = proc.rows[0].pendente_destino_setor
     if (!pendente || !destino) {
-      return res.status(400).json({ error: 'Processo não está pendente' })
+      return res.status(400).json({ error: 'Processo nÃ£o estÃ¡ pendente' })
     }
 
     const urows = await query(`SELECT setor FROM usuarios WHERE login = $1`, [usuario])
     if (urows.rows.length === 0) {
-      return res.status(400).json({ error: 'Usuário não encontrado' })
+      return res.status(400).json({ error: 'UsuÃ¡rio nÃ£o encontrado' })
     }
     const setorUsuario = String(urows.rows[0].setor || '').toUpperCase()
     if (String(setorUsuario) !== String(destino).toUpperCase()) {
       return res
         .status(403)
-        .json({ error: 'Usuário não pertence ao setor de destino da pendência' })
+        .json({ error: 'UsuÃ¡rio nÃ£o pertence ao setor de destino da pendÃªncia' })
     }
 
     await query('BEGIN')
@@ -1649,7 +1835,7 @@ app.post('/api/processos/:id/pendencia/aceitar', async (req, res) => {
              pendente_destino_setor = NULL,
              pendente_origem_setor = NULL,
              setor_atual = $2,
-             status = 'Em instrução'
+             status = 'Em instruÃ§Ã£o'
        WHERE id = $1`,
       [id, destino],
     )
@@ -1672,43 +1858,43 @@ app.post('/api/processos/:id/pendencia/aceitar', async (req, res) => {
   } catch (e) {
     await query('ROLLBACK').catch(() => {})
     console.error('Erro em POST /api/processos/:id/pendencia/aceitar', e)
-    res.status(500).json({ error: 'Erro ao aceitar pendência' })
+    res.status(500).json({ error: 'Erro ao aceitar pendÃªncia' })
   }
 })
 
-// POST recusar pendência
+// POST recusar pendÃªncia
 app.post('/api/processos/:id/pendencia/recusar', async (req, res) => {
   try {
     const { id } = req.params
     const { usuario, motivo } = req.body
     if (!usuario) {
-      return res.status(400).json({ error: 'Usuário executor é obrigatório' })
+      return res.status(400).json({ error: 'UsuÃ¡rio executor Ã© obrigatÃ³rio' })
     }
     if (!motivo) {
-      return res.status(400).json({ error: 'Motivo é obrigatório para recusa' })
+      return res.status(400).json({ error: 'Motivo Ã© obrigatÃ³rio para recusa' })
     }
 
     const proc = await query(
       `SELECT pendente, pendente_destino_setor, pendente_origem_setor FROM processos WHERE id = $1`,
       [id],
     )
-    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo não encontrado' })
+    if (proc.rows.length === 0) return res.status(404).json({ error: 'Processo nÃ£o encontrado' })
     const pendente = !!proc.rows[0].pendente
     const destino = proc.rows[0].pendente_destino_setor
     const origem = proc.rows[0].pendente_origem_setor
     if (!pendente || !destino || !origem) {
-      return res.status(400).json({ error: 'Processo não está pendente' })
+      return res.status(400).json({ error: 'Processo nÃ£o estÃ¡ pendente' })
     }
 
     const urows = await query(`SELECT setor FROM usuarios WHERE login = $1`, [usuario])
     if (urows.rows.length === 0) {
-      return res.status(400).json({ error: 'Usuário não encontrado' })
+      return res.status(400).json({ error: 'UsuÃ¡rio nÃ£o encontrado' })
     }
     const setorUsuario = String(urows.rows[0].setor || '').toUpperCase()
     if (String(setorUsuario) !== String(destino).toUpperCase()) {
       return res
         .status(403)
-        .json({ error: 'Usuário não pertence ao setor de destino da pendência' })
+        .json({ error: 'UsuÃ¡rio nÃ£o pertence ao setor de destino da pendÃªncia' })
     }
 
     const tramiteId = uuidv4()
@@ -1747,6 +1933,8 @@ app.post('/api/processos/:id/pendencia/recusar', async (req, res) => {
   } catch (e) {
     await query('ROLLBACK').catch(() => {})
     console.error('Erro em POST /api/processos/:id/pendencia/recusar', e)
-    res.status(500).json({ error: 'Erro ao recusar pendência' })
+    res.status(500).json({ error: 'Erro ao recusar pendÃªncia' })
   }
 })
+
+

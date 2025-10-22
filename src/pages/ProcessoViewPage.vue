@@ -3,7 +3,10 @@
     <q-splitter v-model="splitterModel" :style="{ height: 'calc(100vh - 120px)' }">
       <template #before>
         <div class="q-pa-sm">
-          <div v-if="processo" class="text-subtitle1 q-mb-sm text-bold">{{ processo.numero }}</div>
+          <div v-if="processo" class="text-subtitle1 q-mb-sm text-bold">
+            {{ processo.numero }}
+            <div class="text-caption">Setor atual: {{ setorAtualLabel || '' }}</div>
+          </div>
           <div v-else class="text-subtitle1 q-mb-sm">Documentos</div>
           <q-tree
             :nodes="docNodes"
@@ -73,7 +76,7 @@
             size="md"
             icon="person_add"
             label="Atribuir"
-            :disable="!processo"
+            :disable="!podeAtribuir"
             @click="openAtribuirDialog"
           />
           <q-btn
@@ -101,7 +104,7 @@
             size="md"
             icon="note_add"
             label="Novo documento"
-            :disable="!processo"
+            :disable="!podeCriarDoc"
             @click="openCriarDocDialog"
           />
           <div class="q-mx-xs">
@@ -159,15 +162,29 @@
 
           <!-- Área principal: dados do processo ou documento selecionado -->
           <q-card-section v-if="selectedKey === 'processo' && processo" class="q-pa-sm">
-            <div class="row q-mt-sm justify-end q-gutter-sm">
-              <q-btn flat label="Cancelar" color="primary" @click="cancelarDados" />
-              <q-btn
-                unelevated
-                label="Salvar"
-                color="primary"
-                :disable="!dadosChanged || (isBaseLegalRequired && !dadosForm.baseLegal)"
-                @click="salvarDados"
-              />
+            <div class="row items-center justify-between">
+              <div class="col-auto text-primary text-bold">
+                <q-icon color="primary" name="home_work" />
+                Setor atual: {{ setorAtualLabel || '-' }}
+              </div>
+              <div class="col-auto q-gutter-sm">
+                <q-btn
+                  flat
+                  label="Cancelar"
+                  color="primary"
+                  @click="cancelarDados"
+                  :disable="!isSameSetor"
+                />
+                <q-btn
+                  unelevated
+                  label="Salvar"
+                  color="primary"
+                  :disable="
+                    !isSameSetor || !dadosChanged || (isBaseLegalRequired && !dadosForm.baseLegal)
+                  "
+                  @click="salvarDados"
+                />
+              </div>
             </div>
 
             <div class="row q-col-gutter-md">
@@ -175,7 +192,12 @@
                 <q-input v-model="processo.numero" label="Número (NUP)" readonly dense />
               </div>
               <div class="col-12 col-md-8">
-                <q-input v-model="dadosForm.assunto" label="Assunto" dense />
+                <q-input
+                  v-model="dadosForm.assunto"
+                  label="Assunto"
+                  dense
+                  :readonly="!isSameSetor"
+                />
               </div>
             </div>
             <div class="row q-col-gutter-md q-mt-sm">
@@ -191,6 +213,7 @@
                   :options="nivelOptions"
                   label="Nível de Acesso"
                   dense
+                  :disable="!isSameSetor"
                 />
               </div>
             </div>
@@ -203,12 +226,18 @@
                   type="textarea"
                   dense
                   rows="3"
+                  :readonly="!isSameSetor"
                 />
               </div>
             </div>
             <div class="row q-col-gutter-md q-mt-sm" v-if="isBaseLegalRequired">
               <div class="col-12">
-                <q-input v-model="dadosForm.baseLegal" label="Base legal" dense />
+                <q-input
+                  v-model="dadosForm.baseLegal"
+                  label="Base legal"
+                  dense
+                  :readonly="!isSameSetor"
+                />
               </div>
             </div>
 
@@ -637,7 +666,11 @@ async function loadViewerSetor() {
     viewerSetor.value = null
   }
 }
-
+const isSameSetor = computed(() => {
+  const viewer = String(viewerSetor.value || '').toUpperCase()
+  const atual = String(processo.value?.setor || '').toUpperCase()
+  return !!viewer && !!atual && viewer === atual
+})
 const editorDialogOpen = ref(false)
 const editorForm = ref({ conteudo: '' })
 
@@ -802,19 +835,20 @@ const canSign = computed(() => {
     String(d.status || '').toLowerCase() === 'rascunho' &&
     !!d.id &&
     (d.modo === 'Editor' || isAllowedUploadToSign(d))
-  return allowedDoc && !!p && p.atribuidoA === me && isAtEndOfTree(d.id)
+  return isSameSetor.value && allowedDoc && !!p && p.atribuidoA === me && isAtEndOfTree(d.id)
 })
 
 const canDeleteDraft = computed(() => {
   const d = selectedDoc.value
   const me = getUsuarioLogin()
-  return !!d && String(d.status || '').toLowerCase() === 'rascunho' && d.autorLogin === me
+  return isSameSetor.value && !!d && String(d.status || '').toLowerCase() === 'rascunho' && d.autorLogin === me
 })
 
 const editDisableReason = computed(() => {
   const d = selectedDoc.value
   const p = processo.value
   const me = getUsuarioLogin()
+  if (!isSameSetor.value) return 'Ação não permitida fora do setor atual'
   if (!d) return 'Selecione um documento'
   if (d.modo !== 'Editor') return 'Ação disponível apenas para modo Editor'
   if (!isAtEndOfTree(d.id)) return 'Documento não está no fim da árvore'
@@ -829,6 +863,7 @@ const signDisableReason = computed(() => {
   const d = selectedDoc.value
   const p = processo.value
   const me = getUsuarioLogin()
+  if (!isSameSetor.value) return 'Ação não permitida fora do setor atual'
   if (!d) return 'Selecione um documento'
   if (String(d.status || '').toLowerCase() !== 'rascunho')
     return 'Apenas rascunhos podem ser assinados'
@@ -845,6 +880,7 @@ const signDisableReason = computed(() => {
 const deleteDisableReason = computed(() => {
   const d = selectedDoc.value
   const me = getUsuarioLogin()
+  if (!isSameSetor.value) return 'Ação não permitida fora do setor atual'
   if (!d) return 'Selecione um documento'
   if (String(d.status || '').toLowerCase() !== 'rascunho')
     return 'Apenas rascunhos podem ser excluídos'
@@ -1100,6 +1136,7 @@ onMounted(async () => {
       observacoes: String(data.observacoes || ''),
       baseLegal: String(data.baseLegal || ''),
     }
+    await loadSetoresOptions()
     await loadDocumentos()
   } catch (e) {
     console.error(e)
@@ -1167,11 +1204,13 @@ const podeTramitar = computed(
 const podeMarcarPrioridade = computed(() => {
   const p = processo.value
   const me = getUsuarioLogin()
-  return !!p && (!p.atribuidoA || p.atribuidoA === me)
+  return isSameSetor.value && !!p && (!p.atribuidoA || p.atribuidoA === me)
 })
 const podeEditarPartes = computed(
-  () => !!processo.value && processo.value.atribuidoA === getUsuarioLogin(),
+  () => isSameSetor.value && !!processo.value && processo.value.atribuidoA === getUsuarioLogin(),
 )
+const podeAtribuir = computed(() => !!processo.value && isSameSetor.value)
+const podeCriarDoc = computed(() => !!processo.value && isSameSetor.value)
 function abrirParteDialog() {
   parteForm.value = { tipo: 'Cidadão', nome: '', documento: '', papel: 'Requerente' }
   parteDialogOpen.value = true
@@ -1224,6 +1263,12 @@ function removerParteRow(row) {
 const tramitarDialogOpen = ref(false)
 const tramitarForm = ref({ destinoSetor: null, motivo: '', prioridade: null, prazo: '' })
 const setorOptions = ref([])
+const setorAtualLabel = computed(() => {
+  const s = String(processo.value?.setor || '').toUpperCase()
+  if (!s) return ''
+  const opt = (setorOptions.value || []).find((o) => String(o.value || '').toUpperCase() === s)
+  return opt?.label || s
+})
 const prioridadeOptions = ['Baixa', 'Normal', 'Alta', 'Urgente']
 async function loadSetoresOptions() {
   try {

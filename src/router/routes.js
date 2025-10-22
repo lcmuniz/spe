@@ -12,6 +12,15 @@ const routes = [
     ],
   },
 
+  // Rota pública (sem autenticação obrigatória)
+  {
+    path: '/publico',
+    component: () => import('layouts/BlankLayout.vue'),
+    children: [
+      { path: 'consulta', component: () => import('pages/ConsultaExternaPage.vue') },
+    ],
+  },
+
   // 404
   {
     path: '/:catchAll(.*)*',
