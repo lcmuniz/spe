@@ -165,15 +165,33 @@
         </q-td>
       </template>
 
+      <template #body-cell-prioridade="props">
+        <q-td :props="props">
+          <q-badge
+            :color="prioridadeColor(props.row.prioridade)"
+            text-color="white"
+            :label="props.row.prioridade || '-'"
+            rounded
+          />
+        </q-td>
+      </template>
+
       <template #body-cell-prazo="props">
         <q-td :props="props">
-          <span>{{
-            props.row.prazo
-              ? new Date(props.row.prazo).toLocaleDateString('pt-BR', {
-                  timeZone: 'America/Sao_Paulo',
-                })
-              : '-'
-          }}</span>
+          <template v-if="props.row.prazo">
+            <q-badge
+              v-if="diasRestantes(props.row.prazo) >= 0 && diasRestantes(props.row.prazo) < 31"
+              color="negative"
+              text-color="white"
+              :label="`${diasRestantes(props.row.prazo)} dias`"
+            />
+            <span v-else>{{
+              new Date(props.row.prazo).toLocaleDateString('pt-BR', {
+                timeZone: 'America/Sao_Paulo',
+              })
+            }}</span>
+          </template>
+          <span v-else>-</span>
         </q-td>
       </template>
 
@@ -399,6 +417,29 @@ function labelSetor(sigla) {
   return opt?.label || s || ''
 }
 
+function prioridadeColor(val) {
+  const s = String(val || '')
+    .toLowerCase()
+    .trim()
+  if (s === 'baixa') return 'grey-7'
+  if (s === 'normal') return 'primary'
+  if (s === 'alta') return 'orange'
+  if (s === 'urgente') return 'negative'
+  return 'grey-6'
+}
+
+function diasRestantes(value) {
+  if (!value) return -1
+  const prazo = new Date(value)
+  const hoje = new Date()
+  // Normalizar para meia-noite para evitar efeitos de hora
+  prazo.setHours(0, 0, 0, 0)
+  hoje.setHours(0, 0, 0, 0)
+  const diffMs = prazo.getTime() - hoje.getTime()
+  const umDiaMs = 24 * 60 * 60 * 1000
+  return Math.ceil(diffMs / umDiaMs)
+}
+
 // Setor do usuário (claim do token)
 const userSector = ref(null)
 
@@ -523,33 +564,34 @@ async function updateCounts() {
       nivelAcesso: filters.value.nivelAcesso || undefined,
     }
     const setorName = userSector.value || undefined
-    const [dataSetor, dataMeus, dataPendDest, dataPendSetor, dataMeusPend, dataSetorArquivado] = await Promise.all([
-      listarProcessos({ ...common, setor: setorName, page: 1, pageSize: 1 }),
-      listarProcessos({
-        ...common,
-        somenteMeus: 'true',
-        usuario: getUsuario(),
-        page: 1,
-        pageSize: 1,
-      }),
-      listarProcessos({
-        ...common,
-        pendente: 'true',
-        pendenteSetor: setorName,
-        page: 1,
-        pageSize: 1,
-      }),
-      listarProcessos({ ...common, pendente: 'true', setor: setorName, page: 1, pageSize: 1 }),
-      listarProcessos({
-        ...common,
-        pendente: 'true',
-        somenteMeus: 'true',
-        usuario: getUsuario(),
-        page: 1,
-        pageSize: 1,
-      }),
-      listarProcessos({ ...common, setor: setorName, status: 'Arquivado', page: 1, pageSize: 1 }),
-    ])
+    const [dataSetor, dataMeus, dataPendDest, dataPendSetor, dataMeusPend, dataSetorArquivado] =
+      await Promise.all([
+        listarProcessos({ ...common, setor: setorName, page: 1, pageSize: 1 }),
+        listarProcessos({
+          ...common,
+          somenteMeus: 'true',
+          usuario: getUsuario(),
+          page: 1,
+          pageSize: 1,
+        }),
+        listarProcessos({
+          ...common,
+          pendente: 'true',
+          pendenteSetor: setorName,
+          page: 1,
+          pageSize: 1,
+        }),
+        listarProcessos({ ...common, pendente: 'true', setor: setorName, page: 1, pageSize: 1 }),
+        listarProcessos({
+          ...common,
+          pendente: 'true',
+          somenteMeus: 'true',
+          usuario: getUsuario(),
+          page: 1,
+          pageSize: 1,
+        }),
+        listarProcessos({ ...common, setor: setorName, status: 'Arquivado', page: 1, pageSize: 1 }),
+      ])
     const getTotal = (data) =>
       (data && typeof data.total === 'number' && data.total) ||
       (Array.isArray(data?.items) ? data.items.length : Array.isArray(data) ? data.length : 0)
