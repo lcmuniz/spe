@@ -93,6 +93,46 @@ async function initDb() {
       papel VARCHAR(100)
     );
   `)
+  // Novo vínculo opcional com cadastro_partes
+  await pool.query(`
+    ALTER TABLE processo_partes
+      ADD COLUMN IF NOT EXISTS cadastro_parte_id UUID REFERENCES cadastro_partes(id) ON DELETE SET NULL;
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_partes_cadastro ON processo_partes(cadastro_parte_id);`)
+
+  // Migração: para registros antigos em processo_partes sem cadastro_parte_id, criar entradas em cadastro_partes
+  try {
+    const { rows: cols } = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'processo_partes'`,
+      [schema],
+    )
+    const hasNome = cols.some((c) => c.column_name === 'nome')
+    const hasTipo = cols.some((c) => c.column_name === 'tipo')
+    const hasDocumento = cols.some((c) => c.column_name === 'documento')
+    if (hasNome || hasDocumento || hasTipo) {
+      const { rows: antigos } = await pool.query(
+        `SELECT id, tipo, nome, documento FROM processo_partes WHERE cadastro_parte_id IS NULL`,
+      )
+      for (const pp of antigos) {
+        const cadId = require('crypto').randomUUID()
+        await pool.query(
+          `INSERT INTO cadastro_partes (id, tipo, nome, documento) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+          [cadId, pp.tipo || null, pp.nome || null, pp.documento || null],
+        )
+        await pool.query(
+          `UPDATE processo_partes SET cadastro_parte_id = $1 WHERE id = $2 AND cadastro_parte_id IS NULL`,
+          [cadId, pp.id],
+        )
+      }
+    }
+  } catch (e) {
+    console.warn('Aviso: migração de processo_partes->cadastro_partes falhou ou não necessária', e.message)
+  }
+
+  // Remover colunas duplicadas que agora residem em cadastro_partes
+  await pool.query(`ALTER TABLE processo_partes DROP COLUMN IF EXISTS tipo;`)
+  await pool.query(`ALTER TABLE processo_partes DROP COLUMN IF EXISTS nome;`)
+  await pool.query(`ALTER TABLE processo_partes DROP COLUMN IF EXISTS documento;`)
 
   // ACL de processos: setores, usuários e partes vinculadas
   await pool.query(`
@@ -165,9 +205,7 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_processos_assunto ON processos(assunto);
   `)
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_partes_nome ON processo_partes(nome);
-  `)
+  // Index on processo_partes(nome) removed due to column drop
 
   // Nova tabela de setores
   await pool.query(`
@@ -250,6 +288,27 @@ async function initDb() {
     // ignora se não aplicável
   }
 
+  // Cadastro de Partes (tabela separada)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cadastro_partes (
+      id UUID PRIMARY KEY,
+      tipo VARCHAR(20) NOT NULL, -- FISICA | JURIDICA
+      nome VARCHAR(255) NOT NULL,
+      documento VARCHAR(50),
+      email VARCHAR(255),
+      telefone VARCHAR(50),
+      endereco_logradouro VARCHAR(255),
+      endereco_numero VARCHAR(50),
+      endereco_complemento VARCHAR(255),
+      endereco_bairro VARCHAR(255),
+      endereco_cidade VARCHAR(255),
+      endereco_estado VARCHAR(2),
+      endereco_cep VARCHAR(20)
+    );
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cad_partes_nome ON cadastro_partes(nome);`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cad_partes_doc ON cadastro_partes(documento);`)
+
   // Tabela de auditoria (logs de ações)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS auditoria (
@@ -284,7 +343,7 @@ async function initDb() {
         ('juridico1', 'JURÍDICO', 'Jurídico 1', 'Analista Jurídico'),
         ('juridico2', 'JURÍDICO', 'Jurídico 2', 'Analista Jurídico'),
         ('ti1', 'TI', 'TI 1', 'Analista de TI'),
-        ('ti2', 'TI', 'TI 2', 'Analista de TI'),
+        ('ti2', 'TI', 'Analista de TI'),
         ('financeiro1', 'FINANCEIRO', 'Financeiro 1', 'Analista Financeiro'),
         ('financeiro2', 'FINANCEIRO', 'Financeiro 2', 'Analista Financeiro'),
         ('system', 'PROTOCOLO', 'Sistema', 'Sistema')

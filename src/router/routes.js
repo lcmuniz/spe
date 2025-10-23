@@ -9,6 +9,7 @@ const routes = [
       { path: 'protocolo', component: () => import('pages/ProtocoloPage.vue') },
       { path: 'consultar', component: () => import('pages/ConsultarPage.vue') },
       { path: 'processo/:id', component: () => import('pages/ProcessoViewPage.vue') },
+      { path: 'cadastro-partes', component: () => import('pages/CadastroPartesPage.vue') },
     ],
   },
 

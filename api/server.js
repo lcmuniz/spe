@@ -12,13 +12,14 @@ const catalogService = require('./services/catalogService')
 const documentosService = require('./services/documentosService')
 const usuariosService = require('./services/usuariosService')
 const { rollback } = require('./services/transacoesService')
+const partesCadastroService = require('./services/partesCadastroService')
 
 const app = express()
 //const PORT = process.env.PORT || 3001
 const PORT = 3001
 
 // Ajusta CORS para permitir o frontend em 9000 e 9002
-app.use(cors({ origin: ['http://localhost:9000', 'http://localhost:9001'], credentials: false }))
+app.use(cors({ origin: ['http://localhost:9000', 'http://localhost:9001', 'http://localhost:9002'], credentials: false }))
 app.use(bodyParser.json({ limit: '10mb' }))
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }))
 
@@ -228,6 +229,84 @@ app.get('/api/catalog/tipos-processo', async (req, res) => {
   } catch (e) {
     console.error('Erro em GET /api/catalog/tipos-processo', e)
     res.status(500).json({ error: 'Erro ao listar tipos de processo' })
+  }
+})
+
+// Cadastro de Partes (tabela separada do processo)
+app.get('/api/partes-cadastro', async (req, res) => {
+  try {
+    const q = req.query.q || undefined
+    const limit = Number(req.query.limit || 50)
+    const offset = Number(req.query.offset || 0)
+    const rows = await partesCadastroService.listarPartesCadastro({ q, limit, offset })
+    res.json(rows)
+  } catch (e) {
+    console.error('Erro em GET /api/partes-cadastro', e)
+    res.status(500).json({ error: 'Erro ao listar cadastro de partes' })
+  }
+})
+
+app.get('/api/partes-cadastro/:id', async (req, res) => {
+  try {
+    const item = await partesCadastroService.obterParteCadastro(req.params.id)
+    if (!item) return res.status(404).json({ error: 'Registro não encontrado' })
+    res.json(item)
+  } catch (e) {
+    console.error('Erro em GET /api/partes-cadastro/:id', e)
+    res.status(500).json({ error: 'Erro ao obter cadastro de parte' })
+  }
+})
+
+app.post('/api/partes-cadastro', async (req, res) => {
+  try {
+    const created = await partesCadastroService.criarParteCadastro(req.body || {})
+    await auditLog(req, {
+      acao: 'cadastro_partes.criar',
+      usuarioLogin: req.body.executadoPor || req.body.usuario || null,
+      entidade: 'cadastro_partes',
+      entidadeId: created?.id || null,
+      detalhes: { nome: created?.nome, documento: created?.documento },
+    })
+    res.status(201).json(created)
+  } catch (e) {
+    console.error('Erro em POST /api/partes-cadastro', e)
+    res.status(500).json({ error: 'Erro ao criar cadastro de parte' })
+  }
+})
+
+app.put('/api/partes-cadastro/:id', async (req, res) => {
+  try {
+    const updated = await partesCadastroService.atualizarParteCadastro(req.params.id, req.body || {})
+    if (!updated) return res.status(404).json({ error: 'Registro não encontrado' })
+    await auditLog(req, {
+      acao: 'cadastro_partes.atualizar',
+      usuarioLogin: req.body.executadoPor || req.body.usuario || null,
+      entidade: 'cadastro_partes',
+      entidadeId: updated?.id || req.params.id,
+      detalhes: { nome: updated?.nome, documento: updated?.documento },
+    })
+    res.json(updated)
+  } catch (e) {
+    console.error('Erro em PUT /api/partes-cadastro/:id', e)
+    res.status(500).json({ error: 'Erro ao atualizar cadastro de parte' })
+  }
+})
+
+app.delete('/api/partes-cadastro/:id', async (req, res) => {
+  try {
+    await partesCadastroService.removerParteCadastro(req.params.id)
+    await auditLog(req, {
+      acao: 'cadastro_partes.deletar',
+      usuarioLogin: req.body?.executadoPor || req.body?.usuario || null,
+      entidade: 'cadastro_partes',
+      entidadeId: req.params.id,
+      detalhes: {},
+    })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('Erro em DELETE /api/partes-cadastro/:id', e)
+    const status = typeof e.code === 'number' ? e.code : typeof e.status === 'number' ? e.status : 500
+    res.status(status).json({ error: e.message || 'Erro ao remover cadastro de parte' })
   }
 })
 
@@ -482,17 +561,17 @@ app.post('/api/processos/:id/dados', async (req, res) => {
 app.post('/api/processos/:id/partes', async (req, res) => {
   try {
     const { id } = req.params
-    const { tipo, nome, documento, papel, executadoPor, usuario } = req.body || {}
+    const { parteId, tipo, nome, documento, papel, executadoPor, usuario } = req.body || {}
 
     // Delegar criação ao service
-    const parte = await processosService.addParte(id, { tipo, nome, documento, papel })
+    const parte = await processosService.addParte(id, { parteId, tipo, nome, documento, papel })
 
     await auditLog(req, {
       acao: 'processo.parte.criar',
       usuarioLogin: executadoPor || usuario || null,
       entidade: 'processo',
       entidadeId: id,
-      detalhes: { parteId: parte.id, tipo, nome, documento, papel },
+      detalhes: { parteId: parte.id, cadastroParteId: parte?.cadastroParteId || parteId || null, tipo, nome, documento, papel },
     })
 
     res.status(201).json({ ok: true, parte })

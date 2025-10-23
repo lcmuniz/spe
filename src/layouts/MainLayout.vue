@@ -94,6 +94,20 @@
         <q-item
           clickable
           v-ripple
+          @click="$router.push('/cadastro-partes')"
+          :class="$route.path === '/cadastro-partes' ? 'bg-primary text-white' : ''"
+        >
+          <q-item-section avatar>
+            <q-icon name="person_add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Cadastro de Partes</q-item-label>
+          </q-item-section>
+        </q-item>
+
+        <q-item
+          clickable
+          v-ripple
           @click="$router.push('/consultar')"
           :class="$route.path === '/consultar' ? 'bg-primary text-white' : ''"
         >

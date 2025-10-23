@@ -84,6 +84,9 @@ describe('processosService', () => {
       query.mockResolvedValueOnce({})
       // INSERT processos
       query.mockResolvedValueOnce({})
+      // INSERT cadastro_partes (2 partes)
+      query.mockResolvedValueOnce({})
+      query.mockResolvedValueOnce({})
       // INSERT processo_partes (2 partes)
       query.mockResolvedValueOnce({})
       query.mockResolvedValueOnce({})
@@ -107,7 +110,7 @@ describe('processosService', () => {
       })
 
       // Verificar chamadas
-      expect(query).toHaveBeenCalledTimes(8)
+      expect(query).toHaveBeenCalledTimes(10)
       expect(query.mock.calls[0][0]).toBe('BEGIN')
       expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('INSERT INTO processos'))
       const insertProcParams = query.mock.calls[1][1]
@@ -120,22 +123,23 @@ describe('processosService', () => {
       expect(insertProcParams[6]).toBe('')
       expect(insertProcParams[7]).toBe('user1')
 
-      // Inserts de partes
-      expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
+      // Inserts de cadastro_partes + processo_partes
+      expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO cadastro_partes'))
       expect(query.mock.calls[3][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
+      expect(query.mock.calls[4][0]).toEqual(expect.stringContaining('INSERT INTO cadastro_partes'))
+      expect(query.mock.calls[5][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
 
       // Inserts de documentos
-      expect(query.mock.calls[4][0]).toEqual(
+      expect(query.mock.calls[6][0]).toEqual(
         expect.stringContaining('INSERT INTO processo_documentos'),
       )
-      expect(query.mock.calls[5][0]).toEqual(
+      expect(query.mock.calls[7][0]).toEqual(
         expect.stringContaining('INSERT INTO processo_documentos'),
       )
 
-      expect(query.mock.calls[6][0]).toBe('COMMIT')
-      expect(query.mock.calls[7][0]).toEqual(
-        expect.stringContaining('SELECT nome FROM processo_partes'),
-      )
+      expect(query.mock.calls[8][0]).toBe('COMMIT')
+      expect(query.mock.calls[9][0]).toEqual(expect.stringContaining('SELECT cp.nome'))
+      expect(query.mock.calls[9][0]).toEqual(expect.stringContaining('FROM processo_partes pp'))
 
       // Verificar retorno
       expect(result.id).toBe('proc-123')
@@ -460,14 +464,17 @@ describe('listProcessos', () => {
     const countSql = query.mock.calls[0][0]
     expect(countSql).toEqual(expect.stringContaining('p.numero ILIKE $1'))
     expect(countSql).toEqual(expect.stringContaining('p.assunto ILIKE $2'))
-    expect(countSql).toEqual(expect.stringContaining('EXISTS (SELECT 1 FROM processo_partes pp'))
-    expect(countSql).toEqual(expect.stringContaining('pp.nome ILIKE $3'))
+    expect(countSql).toEqual(expect.stringContaining('EXISTS ('))
+    expect(countSql).toEqual(expect.stringContaining('FROM processo_partes pp'))
+    expect(countSql).toEqual(expect.stringContaining('LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id'))
+    expect(countSql).toEqual(expect.stringContaining('cp.nome ILIKE $3'))
     expect(query.mock.calls[0][1]).toEqual(['%2024-0001%', '%Teste%', '%Alice%'])
 
     const itemsSql = query.mock.calls[1][0]
     expect(itemsSql).toEqual(expect.stringContaining('p.numero ILIKE $1'))
     expect(itemsSql).toEqual(expect.stringContaining('p.assunto ILIKE $2'))
-    expect(itemsSql).toEqual(expect.stringContaining('pp.nome ILIKE $3'))
+    expect(itemsSql).toEqual(expect.stringContaining('cp.nome ILIKE $3'))
+    expect(itemsSql).toEqual(expect.stringContaining('LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id'))
     const itemsParams = query.mock.calls[1][1]
     expect(itemsParams.slice(0, 3)).toEqual(['%2024-0001%', '%Teste%', '%Alice%'])
     expect(itemsParams[itemsParams.length - 2]).toBe(10)
@@ -557,9 +564,11 @@ describe('addParte', () => {
   it('cria parte e retorna dados', async () => {
     // SELECT processo
     query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
-    // INSERT parte
+    // INSERT cadastro_partes mínimo
     query.mockResolvedValueOnce({})
-    // SELECT parte criada
+    // INSERT processo_partes vinculando cadastro
+    query.mockResolvedValueOnce({})
+    // SELECT parte criada via JOIN
     const parteRow = {
       id: 'uuid-1',
       tipo: 'Pessoa',
@@ -576,8 +585,8 @@ describe('addParte', () => {
       papel: 'Interessado',
     })
 
-    expect(query).toHaveBeenCalledTimes(3)
-    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
+    expect(query).toHaveBeenCalledTimes(4)
+    expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
     expect(result).toEqual(parteRow)
   })
 
@@ -593,7 +602,7 @@ describe('addParte', () => {
       })
       expect(query).toHaveBeenCalledTimes(1)
       expect(query).toHaveBeenCalledWith(
-        expect.stringContaining('FROM processo_partes WHERE id = $1 AND processo_id = $2'),
+        expect.stringContaining('WHERE pp.id = $1 AND pp.processo_id = $2'),
         ['p404', 'proc-1'],
       )
     })

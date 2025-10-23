@@ -590,23 +590,72 @@
           </q-card>
         </q-dialog>
 
-        <!-- Diálogo: Adicionar parte -->
+        <!-- Diálogo: Vincular parte do cadastro -->
         <q-dialog v-model="parteDialogOpen">
-          <q-card style="min-width: 500px">
+          <q-card style="min-width: 700px">
+            <q-card-section class="row items-center q-pb-none">
+              <div class="text-h6">Vincular parte do cadastro</div>
+              <q-space />
+              <q-btn
+                dense
+                unelevated
+                icon="person_add"
+                label="Cadastrar Parte"
+                @click="abrirCadastroCreateDialog"
+              />
+            </q-card-section>
             <q-card-section>
-              <div class="text-h6">Adicionar parte</div>
-              <div class="text-caption">Informe os dados da parte</div>
+              <div class="text-caption">Selecione uma parte já cadastrada</div>
             </q-card-section>
             <q-card-section class="q-gutter-md">
-              <q-select v-model="parteForm.tipo" :options="tipoOptions" label="Tipo" />
-              <q-input v-model="parteForm.nome" label="Nome" />
-              <q-input v-model="parteForm.documento" label="Documento (CPF/CNPJ)" />
+              <q-input
+                v-model="cadastroSearch"
+                label="Buscar parte (nome, documento)"
+                dense
+                @update:model-value="(val) => loadCadastroPartes(val)"
+              />
+              <q-table
+                flat
+                bordered
+                :rows="cadastroPartes"
+                :columns="cadastroColumns"
+                row-key="id"
+                hide-bottom
+                selection="single"
+                v-model:selected="cadastroSelecionada"
+                :pagination="{ rowsPerPage: 5 }"
+              >
+                <template #body-cell-documento="props">
+                  <q-td :props="props">
+                    <span v-if="props.value">{{ props.value }}</span>
+                    <span v-else class="text-grey">—</span>
+                  </q-td>
+                </template>
+              </q-table>
               <q-select v-model="parteForm.papel" :options="papelOptions" label="Papel" />
             </q-card-section>
             <q-card-actions align="right">
               <q-btn flat label="Cancelar" v-close-popup />
-              <q-btn color="primary" label="Adicionar" @click="confirmarParte" />
+              <q-btn color="primary" label="Vincular" @click="confirmarParte" />
             </q-card-actions>
+          </q-card>
+        </q-dialog>
+
+        <!-- Diálogo: Cadastro rápido de parte -->
+        <q-dialog v-model="cadastroCreateDialogOpen">
+          <q-card style="min-width: 600px">
+            <q-card-section class="row items-center q-pb-none">
+              <div class="text-h6">Cadastrar Parte</div>
+              <q-space />
+              <q-btn icon="close" flat round dense v-close-popup />
+            </q-card-section>
+            <q-card-section>
+              <ParteCadastroForm
+                v-model="cadastroCreateForm"
+                @submit="confirmarCadastroCreate"
+                @reset="onCadastroCreateReset"
+              />
+            </q-card-section>
           </q-card>
         </q-dialog>
 
@@ -779,6 +828,8 @@ import {
 } from 'src/services/processosService'
 import { listarSetores } from 'src/services/catalogService'
 import { listarUsuarios } from 'src/services/usuariosService'
+import { listarPartesCadastro, criarParteCadastro } from 'src/services/partesCadastroService'
+import ParteCadastroForm from 'src/components/ParteCadastroForm.vue'
 import { fileToBase64 } from 'src/utils/file'
 
 const $q = useQuasar()
@@ -799,8 +850,32 @@ const partesColumns = [
   { name: 'papel', label: 'Papel', field: 'papel' },
   { name: 'actions', label: 'Ações', field: 'id', align: 'right' },
 ]
+// Seleção de partes do cadastro
+const cadastroSearch = ref('')
+const cadastroPartes = ref([])
+const cadastroSelecionada = ref([])
+const cadastroColumns = [
+  { name: 'tipo', label: 'Tipo', field: 'tipo' },
+  { name: 'nome', label: 'Nome', field: 'nome' },
+  { name: 'documento', label: 'Documento', field: 'documento' },
+]
+const cadastroCreateDialogOpen = ref(false)
+const cadastroCreateForm = ref({
+  tipo: 'FISICA',
+  nome: '',
+  documento: '',
+  email: '',
+  telefone: '',
+  endereco_logradouro: '',
+  endereco_numero: '',
+  endereco_complemento: '',
+  endereco_bairro: '',
+  endereco_cidade: '',
+  endereco_estado: '',
+  endereco_cep: '',
+})
 const parteDialogOpen = ref(false)
-const parteForm = ref({ tipo: 'Cidadão', nome: '', documento: '', papel: 'Requerente' })
+const parteForm = ref({ papel: 'Requerente' })
 const keycloak = inject('keycloak', null)
 function getUsuarioLogin() {
   return keycloak?.tokenParsed?.preferred_username || null
@@ -1406,31 +1481,100 @@ const podeEditarPartes = computed(
 const podeAtribuir = computed(() => !!processo.value && isSameSetor.value)
 const podeCriarDoc = computed(() => !!processo.value && isSameSetor.value)
 function abrirParteDialog() {
-  parteForm.value = { tipo: 'Cidadão', nome: '', documento: '', papel: 'Requerente' }
+  cadastroSearch.value = ''
+  cadastroSelecionada.value = []
+  parteForm.value = { papel: 'Requerente' }
+  loadCadastroPartes()
   parteDialogOpen.value = true
+}
+
+function abrirCadastroCreateDialog() {
+  cadastroCreateForm.value = {
+    tipo: 'FISICA',
+    nome: '',
+    documento: '',
+    email: '',
+    telefone: '',
+    endereco_logradouro: '',
+    endereco_numero: '',
+    endereco_complemento: '',
+    endereco_bairro: '',
+    endereco_cidade: '',
+    endereco_estado: '',
+    endereco_cep: '',
+  }
+  cadastroCreateDialogOpen.value = true
+}
+
+async function loadCadastroPartes(q) {
+  try {
+    const rows = await listarPartesCadastro({ q: (q || '').trim() || undefined, limit: 50 })
+    cadastroPartes.value = rows || []
+  } catch (e) {
+    console.error('Falha ao carregar cadastro de partes', e)
+    cadastroPartes.value = []
+  }
+}
+
+function onCadastroCreateReset() {
+  cadastroCreateForm.value = {
+    tipo: 'FISICA',
+    nome: '',
+    documento: '',
+    email: '',
+    telefone: '',
+    endereco_logradouro: '',
+    endereco_numero: '',
+    endereco_complemento: '',
+    endereco_bairro: '',
+    endereco_cidade: '',
+    endereco_estado: '',
+    endereco_cep: '',
+  }
+}
+
+async function confirmarCadastroCreate() {
+  try {
+    if (!cadastroCreateForm.value.nome) {
+      $q.notify({ type: 'warning', message: 'Informe o nome da parte' })
+      return
+    }
+    const created = await criarParteCadastro({
+      ...cadastroCreateForm.value,
+      executadoPor: getUsuarioLogin(),
+    })
+    // Inclui na lista e seleciona
+    cadastroPartes.value = [created, ...(cadastroPartes.value || [])]
+    cadastroSelecionada.value = [created]
+    $q.notify({ type: 'positive', message: 'Parte cadastrada' })
+    cadastroCreateDialogOpen.value = false
+  } catch (e) {
+    console.error(e)
+    const msg = e?.response?.data?.error || e?.message || 'Falha ao cadastrar parte'
+    $q.notify({ type: 'negative', message: msg })
+  }
 }
 
 async function confirmarParte() {
   try {
-    if (!parteForm.value.nome) {
-      $q.notify({ type: 'warning', message: 'Informe o nome da parte' })
+    const selected = Array.isArray(cadastroSelecionada.value) ? cadastroSelecionada.value[0] : null
+    if (!selected) {
+      $q.notify({ type: 'warning', message: 'Selecione uma parte do cadastro' })
       return
     }
     const { id } = route.params
     const resp = await adicionarParte(id, {
-      tipo: parteForm.value.tipo,
-      papel: parteForm.value.papel,
-      nome: parteForm.value.nome,
-      documento: parteForm.value.documento || undefined,
+      parteId: selected.id,
+      papel: parteForm.value.papel || null,
       executadoPor: getUsuarioLogin(),
     })
     const novaParte = resp?.parte || resp
     partes.value = [...(partes.value || []), novaParte]
-    $q.notify({ type: 'positive', message: 'Parte adicionada' })
+    $q.notify({ type: 'positive', message: 'Parte vinculada ao processo' })
     parteDialogOpen.value = false
   } catch (e) {
     console.error(e)
-    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao adicionar parte' })
+    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao vincular parte' })
   }
 }
 

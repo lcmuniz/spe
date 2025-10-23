@@ -153,13 +153,14 @@
 <script setup>
 import { ref, onMounted, inject } from 'vue'
 import { useQuasar } from 'quasar'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { listarProcessos } from 'src/services/processosService'
 import { listarSetores } from 'src/services/catalogService'
 import { getUsuarioLoginFromKeycloak } from 'src/services/authService'
 
 const $q = useQuasar()
 const router = useRouter()
+const route = useRoute()
 const keycloak = inject('keycloak', null)
 
 function normalizeSector(val) {
@@ -274,7 +275,8 @@ async function fetchData() {
     rows.value = Array.isArray(data) ? data : data?.items || data || []
   } catch (e) {
     console.error(e)
-    $q.notify({ type: 'negative', message: 'Falha ao carregar processos' })
+    const apiMsg = e?.response?.data?.error || e?.message
+    $q.notify({ type: 'negative', message: apiMsg || 'Falha ao carregar processos' })
   } finally {
     loading.value = false
   }
@@ -304,6 +306,23 @@ function abrir(row) {
 
 onMounted(async () => {
   await loadSetoresOptions()
+  const q = route?.query || {}
+  let hasAny = false
+  if (typeof q.numero === 'string' && q.numero.trim() !== '') {
+    filters.value.numero = q.numero
+    hasAny = true
+  }
+  if (typeof q.assunto === 'string' && q.assunto.trim() !== '') {
+    filters.value.assunto = q.assunto
+    hasAny = true
+  }
+  if (typeof q.interessado === 'string' && q.interessado.trim() !== '') {
+    filters.value.interessado = q.interessado
+    hasAny = true
+  }
+  if (hasAny) {
+    resetAndFetch()
+  }
 })
 </script>
 

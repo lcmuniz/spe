@@ -57,8 +57,8 @@ export async function criarProcesso(payload) {
   return data
 }
 
-export async function adicionarParte(id, { tipo, nome, documento, papel, executadoPor }) {
-  const payload = { tipo, nome, documento, papel, executadoPor }
+export async function adicionarParte(id, { parteId, tipo, nome, documento, papel, executadoPor }) {
+  const payload = { parteId, tipo, nome, documento, papel, executadoPor }
   const { data } = await api.post(`/processos/${id}/partes`, payload)
   return data
 }

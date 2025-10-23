@@ -10,12 +10,22 @@ function genNumero() {
 
 async function getProcessoById(id) {
   const { rows } = await query(
-    `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao" FROM processos WHERE id = $1`,
+    `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao"
+     FROM processos WHERE id = $1`,
     [id],
   )
   if (rows.length === 0) return null
   const { rows: partes } = await query(
-    `SELECT id, tipo, nome, documento, papel FROM processo_partes WHERE processo_id = $1 ORDER BY id`,
+    `SELECT pp.id,
+            cp.tipo,
+            cp.nome,
+            cp.documento,
+            pp.papel,
+            pp.cadastro_parte_id AS "cadastroParteId"
+       FROM processo_partes pp
+       LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+      WHERE pp.processo_id = $1
+      ORDER BY pp.id`,
     [id],
   )
   return { ...rows[0], partes }
@@ -59,18 +69,44 @@ async function createProcesso({
   )
 
   for (const parte of partes) {
-    await query(
-      `INSERT INTO processo_partes (id, processo_id, tipo, nome, documento, papel)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        uuidv4(),
-        id,
-        parte.tipo || null,
-        parte.nome || '',
-        parte.documento || null,
-        parte.papel || null,
-      ],
-    )
+    const parteId = uuidv4()
+    if (parte.parteId) {
+      // Vincula a um cadastro existente
+      const cad = await query(`SELECT id FROM cadastro_partes WHERE id = $1`, [parte.parteId])
+      if (!cad.rows.length) {
+        const err = new Error('Parte de cadastro não encontrada')
+        err.code = 404
+        throw err
+      }
+      await query(
+        `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          parteId,
+          id,
+          parte.papel || null,
+          parte.parteId,
+        ],
+      )
+    } else {
+      // Inserção manual: cria cadastro mínimo e vincula
+      const cadId = uuidv4()
+      await query(
+        `INSERT INTO cadastro_partes (id, tipo, nome, documento)
+         VALUES ($1, $2, $3, $4)`,
+        [cadId, parte.tipo || null, parte.nome || '', parte.documento || null],
+      )
+      await query(
+        `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          parteId,
+          id,
+          parte.papel || null,
+          cadId,
+        ],
+      )
+    }
   }
   for (const docId of documentosIds) {
     await query(
@@ -81,7 +117,12 @@ async function createProcesso({
   await commitTransaction()
 
   const interessadoRow = await query(
-    `SELECT nome FROM processo_partes WHERE processo_id = $1 ORDER BY id LIMIT 1`,
+    `SELECT cp.nome
+       FROM processo_partes pp
+       LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+      WHERE pp.processo_id = $1
+      ORDER BY pp.id
+      LIMIT 1`,
     [id],
   )
   const processoView = {
@@ -343,7 +384,12 @@ async function listProcessos(q = {}) {
   if (q.interessado) {
     params.push(`%${q.interessado}%`)
     where.push(
-      `EXISTS (SELECT 1 FROM processo_partes pp WHERE pp.processo_id = p.id AND pp.nome ILIKE $${params.length})`,
+      `EXISTS (
+         SELECT 1
+           FROM processo_partes pp
+           LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+          WHERE pp.processo_id = p.id AND cp.nome ILIKE $${params.length}
+       )`,
     )
   }
   if (q.status) {
@@ -402,7 +448,8 @@ async function listProcessos(q = {}) {
           p.criado_em
         ) AS "ultimaMovimentacao",
         (
-          SELECT nome FROM processo_partes pp
+          SELECT cp.nome FROM processo_partes pp
+          LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
           WHERE pp.processo_id = p.id
           ORDER BY pp.id LIMIT 1
         ) AS interessado
@@ -416,7 +463,44 @@ async function listProcessos(q = {}) {
 
   return { total, page, pageSize, items: rows }
 }
-async function addParte(processoId, { tipo, nome, documento, papel }) {
+async function addParte(processoId, { parteId, tipo, nome, documento, papel }) {
+  // Se parteId informado, usar dados do cadastro
+  if (parteId) {
+    const proc = await query(`SELECT id FROM processos WHERE id = $1`, [processoId])
+    if (proc.rows.length === 0) {
+      const err = new Error('Processo não encontrado')
+      err.code = 404
+      throw err
+    }
+    const cad = await query(`SELECT id, tipo, nome, documento FROM cadastro_partes WHERE id = $1`, [parteId])
+    if (cad.rows.length === 0) {
+      const err = new Error('Parte de cadastro não encontrada')
+      err.code = 404
+      throw err
+    }
+    const { id: cadId, tipo: cadTipo, nome: cadNome, documento: cadDoc } = cad.rows[0]
+    const procParteId = uuidv4()
+    await query(
+    `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
+     VALUES ($1, $2, $3, $4)`,
+    [procParteId, processoId, papel || null, cadId],
+  )
+  const { rows } = await query(
+    `SELECT pp.id,
+            cp.tipo,
+            cp.nome,
+            cp.documento,
+            pp.papel,
+            pp.cadastro_parte_id AS "cadastroParteId"
+       FROM processo_partes pp
+       LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+      WHERE pp.id = $1`,
+    [procParteId],
+  )
+  return rows[0]
+}
+
+  // Inserção manual: cria cadastro mínimo e vincula
   if (!nome) {
     const err = new Error('Nome da parte é obrigatório')
     err.code = 400
@@ -428,21 +512,38 @@ async function addParte(processoId, { tipo, nome, documento, papel }) {
     err.code = 404
     throw err
   }
-  const parteId = uuidv4()
+  const newParteId = uuidv4()
+  const newCadId = uuidv4()
   await query(
-    `INSERT INTO processo_partes (id, processo_id, tipo, nome, documento, papel)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [parteId, processoId, tipo || null, nome, documento || null, papel || null],
+    `INSERT INTO cadastro_partes (id, tipo, nome, documento)
+     VALUES ($1, $2, $3, $4)`,
+    [newCadId, tipo || null, nome, documento || null],
+  )
+  await query(
+    `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
+     VALUES ($1, $2, $3, $4)`,
+    [newParteId, processoId, papel || null, newCadId],
   )
   const { rows } = await query(
-    `SELECT id, tipo, nome, documento, papel FROM processo_partes WHERE id = $1`,
-    [parteId],
+    `SELECT pp.id,
+            cp.tipo,
+            cp.nome,
+            cp.documento,
+            pp.papel,
+            pp.cadastro_parte_id AS "cadastroParteId"
+       FROM processo_partes pp
+       LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+      WHERE pp.id = $1`,
+    [newParteId],
   )
   return rows[0]
 }
 async function deleteParte(processoId, parteId) {
   const { rows } = await query(
-    `SELECT id, nome FROM processo_partes WHERE id = $1 AND processo_id = $2`,
+    `SELECT pp.id, cp.nome
+       FROM processo_partes pp
+       LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+      WHERE pp.id = $1 AND pp.processo_id = $2`,
     [parteId, processoId],
   )
   if (rows.length === 0) {
