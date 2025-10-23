@@ -94,6 +94,34 @@ async function initDb() {
     );
   `)
 
+  // ACL de processos: setores, usuários e partes vinculadas
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS processo_acessos (
+      id UUID PRIMARY KEY,
+      processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
+      tipo VARCHAR(20) NOT NULL, -- SETOR | USUARIO | PARTE
+      valor VARCHAR(255),        -- SETOR sigla ou USUARIO login
+      parte_id UUID,             -- quando tipo = PARTE
+      criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_acessos_proc ON processo_acessos(processo_id);`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_acessos_tipo ON processo_acessos(tipo);`)
+
+  // Chaves de acesso externas para partes
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS processo_acesso_chaves (
+      id UUID PRIMARY KEY,
+      processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
+      parte_id UUID NOT NULL REFERENCES processo_partes(id) ON DELETE CASCADE,
+      chave VARCHAR(100) UNIQUE NOT NULL,
+      ativo BOOLEAN NOT NULL DEFAULT TRUE,
+      criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_chaves_proc ON processo_acesso_chaves(processo_id);`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_chaves_parte ON processo_acesso_chaves(parte_id);`)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tramites (
       id UUID PRIMARY KEY,
@@ -158,6 +186,44 @@ async function initDb() {
       ('TI','Tecnologia da Informação'),
       ('FINANCEIRO','Financeiro')
     ON CONFLICT (sigla) DO NOTHING;
+  `)
+
+  // Tabela de assuntos (catálogo)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assuntos (
+      id VARCHAR(20) PRIMARY KEY,
+      nome VARCHAR(255) NOT NULL
+    );
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_assuntos_nome ON assuntos(nome);`)
+
+  // Seed de assuntos (idempotente)
+  await pool.query(`
+    INSERT INTO assuntos (id, nome) VALUES
+      ('ASS-0001','Despacho'),
+      ('ASS-0002','Memorando'),
+      ('ASS-0003','Ofício'),
+      ('ASS-0004','Ata'),
+      ('ASS-0005','Requerimento')
+    ON CONFLICT (id) DO NOTHING;
+  `)
+
+  // Tipos de processo (catálogo)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tipos_processo (
+      id VARCHAR(50) PRIMARY KEY,
+      nome VARCHAR(255) NOT NULL
+    );
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tipos_processo_nome ON tipos_processo(nome);`)
+
+  // Seed de tipos de processo (idempotente)
+  await pool.query(`
+    INSERT INTO tipos_processo (id, nome) VALUES
+      ('TP-0001','Processo Administrativo'),
+      ('TP-0002','Requerimento'),
+      ('TP-0003','Denúncia')
+    ON CONFLICT (id) DO NOTHING;
   `)
 
   // Tabela de usuários (login -> setor + nome)

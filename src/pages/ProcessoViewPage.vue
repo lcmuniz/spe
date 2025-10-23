@@ -64,7 +64,7 @@
           <q-btn
             dense
             flat
-            size="md"
+            size="sm"
             icon="send"
             label="Tramitar"
             :disable="!podeTramitar"
@@ -73,7 +73,7 @@
           <q-btn
             dense
             flat
-            size="md"
+            size="sm"
             icon="person_add"
             label="Atribuir"
             :disable="!podeAtribuir"
@@ -82,7 +82,7 @@
           <q-btn
             dense
             flat
-            size="md"
+            size="sm"
             icon="flag"
             label="Prioridade"
             :disable="!podeMarcarPrioridade"
@@ -91,17 +91,35 @@
           <q-btn
             dense
             flat
-            size="md"
+            size="sm"
             icon="history"
             label="Histórico"
             :disable="!processo"
             @click="openHistoricoDialog"
           />
+          <q-btn
+            dense
+            flat
+            size="sm"
+            icon="admin_panel_settings"
+            label="Nível de Acesso"
+            :disable="!processo"
+            @click="openAclDialog"
+          />
+          <q-btn
+            dense
+            flat
+            size="sm"
+            icon="archive"
+            label="Arquivar"
+            :disable="!podeTramitar"
+            @click="arquivarSubmit"
+          />
           <q-separator vertical inset class="q-mx-xs" />
           <q-btn
             dense
             flat
-            size="md"
+            size="sm"
             icon="note_add"
             label="Novo documento"
             :disable="!podeCriarDoc"
@@ -111,7 +129,7 @@
             <q-btn
               dense
               flat
-              size="md"
+              size="sm"
               icon="edit"
               label="Editar documento"
               :disable="!canEdit"
@@ -123,7 +141,7 @@
             <q-btn
               dense
               flat
-              size="md"
+              size="sm"
               icon="check_circle"
               label="Assinar documento"
               :disable="!canSign"
@@ -135,7 +153,7 @@
             <q-btn
               dense
               flat
-              size="md"
+              size="sm"
               icon="delete"
               label="Excluir rascunho"
               :disable="!canDeleteDraft"
@@ -163,10 +181,7 @@
           <!-- Área principal: dados do processo ou documento selecionado -->
           <q-card-section v-if="selectedKey === 'processo' && processo" class="q-pa-sm">
             <div class="row items-center justify-between">
-              <div class="col-auto text-primary text-bold">
-                <q-icon color="primary" name="home_work" />
-                Setor atual: {{ setorAtualLabel || '-' }}
-              </div>
+              <div class="col-auto"><q-space /></div>
               <div class="col-auto q-gutter-sm">
                 <q-btn
                   flat
@@ -214,7 +229,8 @@
                   label="Nível de Acesso"
                   dense
                   :disable="!isSameSetor"
-                />
+                >
+                </q-select>
               </div>
             </div>
 
@@ -593,6 +609,136 @@
             </q-card-actions>
           </q-card>
         </q-dialog>
+
+        <!-- ACL Dialog -->
+        <q-dialog v-model="aclDialogOpen">
+          <q-card style="min-width: 700px">
+            <q-card-section class="row items-center q-pb-none">
+              <div class="text-h6">Gerenciar Acesso</div>
+              <q-space />
+              <q-btn icon="close" flat round dense v-close-popup />
+            </q-card-section>
+            <q-card-section>
+              <div class="row q-col-gutter-md">
+                <div class="col-12 col-md-6">
+                  <div class="q-mt-md">
+                    <div class="text-subtitle2 q-mb-sm">Adicionar acesso</div>
+                    <div class="row q-col-gutter-sm">
+                      <div class="col-12 col-md-4">
+                        <q-select
+                          v-model="aclForm.tipo"
+                          :options="[
+                            { label: 'Setor', value: 'SETOR' },
+                            { label: 'Usuário', value: 'USUARIO' },
+                          ]"
+                          label="Tipo"
+                          dense
+                          emit-value
+                          map-options
+                        />
+                      </div>
+                      <div class="col-12 col-md-8">
+                        <q-input
+                          v-model="aclForm.valor"
+                          :label="aclForm.tipo === 'SETOR' ? 'Sigla do setor' : 'Login do usuário'"
+                          :placeholder="aclForm.tipo === 'SETOR' ? 'Ex.: ADM' : 'Ex.: joao.silva'"
+                          dense
+                        />
+                      </div>
+                    </div>
+                    <div class="row justify-end q-mt-sm">
+                      <q-btn
+                        label="Adicionar"
+                        color="primary"
+                        @click="addAcessoSubmit"
+                        :disable="!aclForm.valor"
+                      />
+                    </div>
+                  </div>
+                  <div class="text-subtitle2 q-mb-sm">Acessos concedidos</div>
+                  <q-list bordered dense>
+                    <q-item v-for="a in acessos" :key="a.id">
+                      <q-item-section>
+                        <q-item-label>{{ a.tipo }}</q-item-label>
+                        <q-item-label caption v-if="a.tipo !== 'PARTE'">{{ a.valor }}</q-item-label>
+                        <q-item-label caption v-else
+                          >{{ a.parteNome }} ({{ a.parteDocumento || '—' }})</q-item-label
+                        >
+                      </q-item-section>
+                      <q-item-section side>
+                        <q-btn
+                          flat
+                          round
+                          dense
+                          icon="delete"
+                          color="negative"
+                          @click="removerAcessoRow(a)"
+                        />
+                      </q-item-section>
+                    </q-item>
+                    <div v-if="!acessos.length" class="text-grey q-pa-sm">Nenhum acesso</div>
+                  </q-list>
+                </div>
+                <div class="col-12 col-md-6">
+                  <div class="q-mt-md">
+                    <div class="text-subtitle2 q-mb-sm">Criar nova chave</div>
+                    <div class="row q-col-gutter-sm">
+                      <div class="col-12">
+                        <q-select
+                          v-model="chaveParteId"
+                          :options="
+                            (partes || []).map((p) => ({
+                              label: `${p.nome} (${p.documento || '—'})`,
+                              value: p.id,
+                            }))
+                          "
+                          label="Parte"
+                          dense
+                          emit-value
+                          map-options
+                        />
+                      </div>
+                    </div>
+                    <div class="row justify-end q-mt-sm">
+                      <q-btn label="Criar chave" color="primary" @click="criarChaveSubmit" />
+                    </div>
+                  </div>
+                  <div class="text-subtitle2 q-mb-sm">Chaves de acesso</div>
+                  <q-list bordered dense>
+                    <q-item v-for="c in chaves" :key="c.id">
+                      <q-item-section>
+                        <q-item-label>{{ c.chave }}</q-item-label>
+                        <q-item-label caption>
+                          Parte:
+                          {{
+                            (partes || []).find((p) => String(p.id) === String(c.parteId))?.nome ||
+                            '—'
+                          }}
+                        </q-item-label>
+                        <q-item-label caption>Ativo: {{ c.ativo ? 'Sim' : 'Não' }}</q-item-label>
+                      </q-item-section>
+                      <q-item-section side>
+                        <q-btn
+                          flat
+                          round
+                          dense
+                          icon="block"
+                          color="warning"
+                          @click="revogarChaveRow(c)"
+                          :disable="!c.ativo"
+                        />
+                      </q-item-section>
+                    </q-item>
+                    <div v-if="!chaves.length" class="text-grey q-pa-sm">Nenhuma chave</div>
+                  </q-list>
+                </div>
+              </div>
+            </q-card-section>
+            <q-card-actions align="right">
+              <q-btn flat label="Fechar" v-close-popup />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
       </template>
     </q-splitter>
   </q-page>
@@ -623,6 +769,13 @@ import {
   listarTramites,
   removerParte,
   adicionarParte,
+  listarAcessos,
+  adicionarAcesso,
+  removerAcesso,
+  listarChaves,
+  criarChave,
+  revogarChave,
+  arquivarProcesso,
 } from 'src/services/processosService'
 import { listarSetores } from 'src/services/catalogService'
 import { listarUsuarios } from 'src/services/usuariosService'
@@ -841,7 +994,12 @@ const canSign = computed(() => {
 const canDeleteDraft = computed(() => {
   const d = selectedDoc.value
   const me = getUsuarioLogin()
-  return isSameSetor.value && !!d && String(d.status || '').toLowerCase() === 'rascunho' && d.autorLogin === me
+  return (
+    isSameSetor.value &&
+    !!d &&
+    String(d.status || '').toLowerCase() === 'rascunho' &&
+    d.autorLogin === me
+  )
 })
 
 const editDisableReason = computed(() => {
@@ -1170,6 +1328,7 @@ async function salvarDados() {
       baseLegal: isBaseLegalRequired.value ? dadosForm.value.baseLegal || '' : undefined,
     }
     const updated = await atualizarDados(id, payload)
+    const nivel = String((updated?.nivelAcesso ?? payload.nivelAcesso) || 'Público')
     if (updated) {
       processo.value = updated
       dadosForm.value = {
@@ -1179,6 +1338,41 @@ async function salvarDados() {
         baseLegal: String(updated.baseLegal || ''),
       }
     }
+    // Regras de ACL conforme nível de acesso
+    try {
+      if (nivel === 'Público') {
+        // Remover acessos de USUÁRIO/SETOR (manter chaves)
+        const lista = await listarAcessos(id)
+        for (const a of lista) {
+          if (a.tipo === 'USUARIO' || a.tipo === 'SETOR') {
+            await removerAcesso(id, a.id, { executadoPor: getUsuarioLogin() })
+          }
+        }
+      } else {
+        // Garantir acesso ao usuário atual e pelo menos um acesso
+        const lista = await listarAcessos(id)
+        const me = getUsuarioLogin()
+        const temAlgum = lista.some((a) => a.tipo === 'USUARIO' || a.tipo === 'SETOR')
+        const jaTemUsuario =
+          !!me &&
+          lista.some(
+            (a) =>
+              a.tipo === 'USUARIO' &&
+              String(a.valor || '').toLowerCase() === String(me || '').toLowerCase(),
+          )
+        if (!!me && !jaTemUsuario) {
+          await adicionarAcesso(id, { tipo: 'USUARIO', valor: me, executadoPor: me })
+        } else if (!temAlgum && !!me) {
+          await adicionarAcesso(id, { tipo: 'USUARIO', valor: me, executadoPor: me })
+        }
+      }
+      await loadAcl()
+      const proc = await getProcesso(id)
+      processo.value = proc
+    } catch (e2) {
+      console.error('Falha ao aplicar regras de ACL após salvar', e2)
+    }
+
     $q.notify({ type: 'positive', message: 'Dados do processo atualizados' })
   } catch (e) {
     console.error(e)
@@ -1305,6 +1499,25 @@ async function tramitarSubmit() {
     console.error(e)
     $q.notify({ type: 'warning', message: e?.response?.data?.error || 'Falha ao tramitar' })
   }
+}
+
+function arquivarSubmit() {
+  $q.dialog({
+    title: 'Arquivar processo',
+    message: 'Confirma arquivar este processo? Esta ação remove a atribuição.',
+    cancel: true,
+    ok: { label: 'Arquivar', color: 'primary' },
+  }).onOk(async () => {
+    try {
+      const { id } = route.params
+      await arquivarProcesso(id, { usuario: getUsuarioLogin() })
+      $q.notify({ type: 'positive', message: 'Processo arquivado' })
+      router.push('/dashboard')
+    } catch (e) {
+      console.error(e)
+      $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao arquivar' })
+    }
+  })
 }
 
 // Atribuir
@@ -1477,6 +1690,126 @@ async function criarDocSubmit() {
   } catch (e) {
     console.error(e)
     $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao criar documento' })
+  }
+}
+
+// ACL state and actions
+const aclDialogOpen = ref(false)
+const acessos = ref([])
+const chaves = ref([])
+const aclLoading = ref(false)
+const aclForm = ref({ tipo: 'SETOR', valor: '', parteId: null })
+const chaveParteId = ref(null)
+
+async function openAclDialog() {
+  await loadAcl()
+  aclDialogOpen.value = true
+}
+
+async function loadAcl() {
+  aclLoading.value = true
+  try {
+    const { id } = route.params
+    acessos.value = await listarAcessos(id)
+    chaves.value = await listarChaves(id)
+  } catch (e) {
+    console.error(e)
+    acessos.value = []
+    chaves.value = []
+  } finally {
+    aclLoading.value = false
+  }
+}
+
+async function addAcessoSubmit() {
+  try {
+    const { id } = route.params
+    const tipo = aclForm.value.tipo
+    const payload = {
+      tipo,
+      valor: (aclForm.value.valor || '').trim(),
+      executadoPor: getUsuarioLogin(),
+    }
+    await adicionarAcesso(id, payload)
+    $q.notify({ type: 'positive', message: 'Acesso adicionado' })
+    aclForm.value = { tipo: 'SETOR', valor: '', parteId: null }
+    await loadAcl()
+  } catch (e) {
+    console.error(e)
+    $q.notify({
+      type: 'negative',
+      message: e?.response?.data?.error || 'Falha ao adicionar acesso',
+    })
+  }
+}
+
+async function removerAcessoRow(row) {
+  try {
+    const { id } = route.params
+    const nivelAtual = String(processo.value?.nivelAcesso || 'Público')
+    const isUserOrSetor = row?.tipo === 'USUARIO' || row?.tipo === 'SETOR'
+    if (nivelAtual !== 'Público' && isUserOrSetor) {
+      const count = (acessos.value || []).filter(
+        (a) => a.tipo === 'USUARIO' || a.tipo === 'SETOR',
+      ).length
+      if (count <= 1) {
+        $q.notify({
+          type: 'warning',
+          message:
+            'Processos restritos/sigilosos precisam de pelo menos um usuário ou setor com acesso.',
+        })
+        return
+      }
+    }
+    await removerAcesso(id, row.id, { executadoPor: getUsuarioLogin() })
+    $q.notify({ type: 'positive', message: 'Acesso removido' })
+    await loadAcl()
+  } catch (e) {
+    console.error(e)
+    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao remover acesso' })
+  }
+}
+
+async function criarChaveSubmit() {
+  try {
+    const { id } = route.params
+    if (!chaveParteId.value) {
+      $q.notify({ type: 'warning', message: 'Selecione a parte' })
+      return
+    }
+    const resp = await criarChave(id, {
+      parteId: chaveParteId.value,
+      executadoPor: getUsuarioLogin(),
+    })
+    const chave = resp?.chave
+    await loadAcl()
+    if (chave) {
+      $q.dialog({
+        title: 'Chave de acesso criada',
+        message: `Compartilhe com a parte:\n${chave}`,
+        ok: { label: 'Copiar', color: 'primary' },
+        cancel: true,
+      }).onOk(() => {
+        navigator.clipboard?.writeText(chave).catch(() => {})
+      })
+    } else {
+      $q.notify({ type: 'positive', message: 'Chave criada' })
+    }
+  } catch (e) {
+    console.error(e)
+    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao criar chave' })
+  }
+}
+
+async function revogarChaveRow(row) {
+  try {
+    const { id } = route.params
+    await revogarChave(id, row.id, { executadoPor: getUsuarioLogin() })
+    $q.notify({ type: 'positive', message: 'Chave revogada' })
+    await loadAcl()
+  } catch (e) {
+    console.error(e)
+    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao revogar chave' })
   }
 }
 </script>

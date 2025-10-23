@@ -21,12 +21,13 @@ export const useAuthStore = defineStore('auth', {
         full ||
         state.user?.name ||
         state.user?.preferred_username ||
+        state.user?.username ||
         keycloak?.tokenParsed?.name ||
         keycloak?.tokenParsed?.preferred_username ||
         'Usuário'
       )
     },
-    userEmail: (state) => state.user?.email || keycloak?.tokenParsed?.email || '',
+    userEmail: (state) => state.user?.email || '',
     hasRole: (state) => (role) => state.roles.includes(role),
     isAdmin: (state) => state.roles.includes('admin') || state.roles.includes('administrador'),
     isServidor: (state) => state.roles.includes('servidor'),

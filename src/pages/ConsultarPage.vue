@@ -176,7 +176,7 @@ function getUsuario() {
   return getUsuarioLoginFromKeycloak(keycloak)
 }
 
-const statusOptions = ['Em instrução', 'Aguardando', 'Concluso']
+const statusOptions = ['Em instrução', 'Aguardando', 'Concluso', 'Arquivado']
 const prioridadeOptions = ['Baixa', 'Normal', 'Alta', 'Urgente']
 const nivelOptions = ['Público', 'Restrito', 'Sigiloso']
 const setorOptions = ref([])

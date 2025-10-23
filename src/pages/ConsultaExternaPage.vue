@@ -59,7 +59,7 @@
       <div v-if="resultado" class="q-mt-lg">
         <q-card flat bordered>
           <q-card-section>
-            <div class="text-h6">Capa Pública</div>
+            <div class="text-h6">Capa do Processo</div>
           </q-card-section>
           <q-separator />
           <q-card-section>
@@ -82,7 +82,7 @@
 
         <q-card flat bordered class="q-mt-md">
           <q-card-section>
-            <div class="text-h6">Andamentos Públicos</div>
+            <div class="text-h6">Andamentos</div>
           </q-card-section>
           <q-separator />
           <q-card-section>

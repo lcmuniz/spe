@@ -105,38 +105,6 @@
       :pagination="pagination"
       :rows-per-page-options="[10, 20]"
     >
-      <template #body-cell-nivelAcesso="props">
-        <q-td :props="props">
-          <q-badge v-if="props.row.nivelAcesso === 'Restrito'" color="orange" label="Restrito" />
-          <q-badge v-else-if="props.row.nivelAcesso === 'Sigiloso'" color="red" label="Sigiloso" />
-          <span v-else>{{ props.row.nivelAcesso }}</span>
-        </q-td>
-      </template>
-
-      <template #body-cell-prazo="props">
-        <q-td :props="props">
-          <span>{{
-            props.row.prazo
-              ? new Date(props.row.prazo).toLocaleDateString('pt-BR', {
-                  timeZone: 'America/Sao_Paulo',
-                })
-              : '-'
-          }}</span>
-        </q-td>
-      </template>
-
-      <template #body-cell-ultimaMovimentacao="props">
-        <q-td :props="props">
-          <span>{{
-            props.row.ultimaMovimentacao
-              ? new Date(props.row.ultimaMovimentacao).toLocaleDateString('pt-BR', {
-                  timeZone: 'America/Sao_Paulo',
-                })
-              : '-'
-          }}</span>
-        </q-td>
-      </template>
-
       <template #body-cell-acoes="props">
         <q-td :props="props">
           <q-btn dense flat icon="more_vert">
@@ -186,6 +154,38 @@
               </q-list>
             </q-menu>
           </q-btn>
+        </q-td>
+      </template>
+
+      <template #body-cell-nivelAcesso="props">
+        <q-td :props="props">
+          <q-badge v-if="props.row.nivelAcesso === 'Restrito'" color="orange" label="Restrito" />
+          <q-badge v-else-if="props.row.nivelAcesso === 'Sigiloso'" color="red" label="Sigiloso" />
+          <span v-else>{{ props.row.nivelAcesso }}</span>
+        </q-td>
+      </template>
+
+      <template #body-cell-prazo="props">
+        <q-td :props="props">
+          <span>{{
+            props.row.prazo
+              ? new Date(props.row.prazo).toLocaleDateString('pt-BR', {
+                  timeZone: 'America/Sao_Paulo',
+                })
+              : '-'
+          }}</span>
+        </q-td>
+      </template>
+
+      <template #body-cell-ultimaMovimentacao="props">
+        <q-td :props="props">
+          <span>{{
+            props.row.ultimaMovimentacao
+              ? new Date(props.row.ultimaMovimentacao).toLocaleDateString('pt-BR', {
+                  timeZone: 'America/Sao_Paulo',
+                })
+              : '-'
+          }}</span>
         </q-td>
       </template>
 
@@ -426,7 +426,7 @@ const filters = ref({
 
 const tab = ref('setor')
 
-const statusOptions = ['Em instrução', 'Aguardando', 'Concluso']
+const statusOptions = ['Em instrução', 'Aguardando', 'Concluso', 'Arquivado']
 const prioridadeOptions = ['Baixa', 'Normal', 'Alta', 'Urgente']
 const nivelOptions = ['Público', 'Restrito', 'Sigiloso']
 const setorOptions = ref([])
@@ -452,6 +452,7 @@ const selected = ref([])
 const loading = ref(false)
 
 const columns = [
+  { name: 'acoes', label: 'Ações', field: 'acoes', align: 'right' },
   { name: 'numero', label: 'Nº Processo', field: 'numero', align: 'left' },
   { name: 'assunto', label: 'Assunto', field: 'assunto', align: 'left' },
   { name: 'interessado', label: 'Interessado', field: 'interessado', align: 'left' },
@@ -473,7 +474,6 @@ const columns = [
     field: 'ultimaMovimentacao',
     align: 'left',
   },
-  { name: 'acoes', label: 'Ações', field: 'acoes', align: 'right' },
 ]
 
 const pagination = ref({ page: 1, rowsPerPage: 10 })
@@ -485,20 +485,26 @@ const displayRows = computed(() => {
     if (!setor) return rows.value
     return rows.value.filter(
       (r) =>
-        normalizeSector(r.setor || r.setorAtual) === normalizeSector(setor) && r.pendente !== true,
+        normalizeSector(r.setor || r.setorAtual) === normalizeSector(setor) &&
+        r.pendente !== true &&
+        r.status !== 'Arquivado',
     )
   }
   if (tab.value === 'meus') {
     const usuario = getUsuario()
     if (!usuario) return rows.value
-    return rows.value.filter((r) => r.atribuidoA === usuario)
+    return rows.value.filter(
+      (r) => r.atribuidoA === usuario && r.pendente !== true && r.status !== 'Arquivado',
+    )
   }
   if (tab.value === 'pendencias') {
     const setor = userSector.value
     if (!setor) return rows.value
     return rows.value.filter(
       (r) =>
-        r.pendente === true && normalizeSector(r.pendenteDestinoSetor) === normalizeSector(setor),
+        r.pendente === true &&
+        normalizeSector(r.pendenteDestinoSetor) === normalizeSector(setor) &&
+        r.status !== 'Arquivado',
     )
   }
   return rows.value
@@ -517,7 +523,7 @@ async function updateCounts() {
       nivelAcesso: filters.value.nivelAcesso || undefined,
     }
     const setorName = userSector.value || undefined
-    const [dataSetor, dataMeus, dataPendDest, dataPendSetor] = await Promise.all([
+    const [dataSetor, dataMeus, dataPendDest, dataPendSetor, dataMeusPend, dataSetorArquivado] = await Promise.all([
       listarProcessos({ ...common, setor: setorName, page: 1, pageSize: 1 }),
       listarProcessos({
         ...common,
@@ -534,6 +540,15 @@ async function updateCounts() {
         pageSize: 1,
       }),
       listarProcessos({ ...common, pendente: 'true', setor: setorName, page: 1, pageSize: 1 }),
+      listarProcessos({
+        ...common,
+        pendente: 'true',
+        somenteMeus: 'true',
+        usuario: getUsuario(),
+        page: 1,
+        pageSize: 1,
+      }),
+      listarProcessos({ ...common, setor: setorName, status: 'Arquivado', page: 1, pageSize: 1 }),
     ])
     const getTotal = (data) =>
       (data && typeof data.total === 'number' && data.total) ||
@@ -543,10 +558,12 @@ async function updateCounts() {
     const totalMeus = getTotal(dataMeus)
     const totalPendDest = getTotal(dataPendDest) // pendências destinadas ao meu setor
     const totalPendSetor = getTotal(dataPendSetor) // pendências que estão no meu setor
+    const totalMeusPend = getTotal(dataMeusPend) // pendências atribuídas a mim (se houver)
+    const totalSetorArquivado = getTotal(dataSetorArquivado) // arquivados no meu setor
 
     counts.value = {
-      setor: Math.max(totalSetor - totalPendSetor, 0),
-      meus: totalMeus,
+      setor: Math.max(totalSetor - totalPendSetor - totalSetorArquivado, 0),
+      meus: Math.max(totalMeus - totalMeusPend, 0),
       pendencias: totalPendDest,
     }
   } catch (err) {

@@ -73,13 +73,13 @@ export default [
   },
 
   {
-    files: ['src-pwa/custom-service-worker.js'],
+    files: ['**/__tests__/**/*.js', '**/*.test.js'],
     languageOptions: {
       globals: {
-        ...globals.serviceworker,
+        ...globals.jest,
+        ...globals.node,
       },
     },
   },
-
   prettierSkipFormatting,
 ]
