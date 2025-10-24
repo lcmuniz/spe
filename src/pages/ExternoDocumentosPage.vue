@@ -49,7 +49,19 @@
               :loading="carregando"
               :pagination="{ rowsPerPage: 10 }"
               no-data-label="Nenhum documento anexado"
-            />
+            >
+              <template v-slot:body-cell-status="props">
+                <q-td :props="props">
+                  <q-badge :color="statusColor(props.value)" :label="mapStatus(props.value)" />
+                </q-td>
+              </template>
+              <template v-slot:body-cell-motivo="props">
+                <q-td :props="props">
+                  <span v-if="props.row.status === 'rejeitado' && props.value">{{ props.value }}</span>
+                  <span v-else>—</span>
+                </q-td>
+              </template>
+            </q-table>
             <div v-if="erroLista" class="text-negative q-mt-sm">{{ erroLista }}</div>
           </q-card-section>
         </q-card>
@@ -99,7 +111,12 @@ const columns = [
     label: 'Status',
     field: 'status',
     align: 'left',
-    format: (s) => mapStatus(s),
+  },
+  {
+    name: 'motivo',
+    label: 'Motivo',
+    field: 'motivo',
+    align: 'left',
   },
 ]
 
@@ -113,6 +130,18 @@ function mapStatus(s) {
       return 'Rejeitado'
     default:
       return s || ''
+  }
+}
+function statusColor(s) {
+  switch (String(s || '').toLowerCase()) {
+    case 'aguardando_analise':
+      return 'warning'
+    case 'juntado':
+      return 'positive'
+    case 'rejeitado':
+      return 'negative'
+    default:
+      return 'grey-6'
   }
 }
 

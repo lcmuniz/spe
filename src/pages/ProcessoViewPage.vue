@@ -2,62 +2,15 @@
   <q-page>
     <q-splitter v-model="splitterModel" :style="{ height: 'calc(100vh - 120px)' }">
       <template #before>
-        <div class="q-pa-sm">
-          <div v-if="processo" class="text-subtitle1 q-mb-sm text-bold">
-            {{ processo.numero }}
-            <div class="text-caption">Setor atual: {{ setorAtualLabel || '' }}</div>
-          </div>
-          <div v-else class="text-subtitle1 q-mb-sm">Documentos</div>
-          <q-tree
-            :nodes="docNodes"
-            dense
-            node-key="id"
-            default-expand-all
-            :selected="selectedKey"
-            @update:selected="onSelect"
-          >
-            <template v-slot:default-header="prop">
-              <div
-                class="row items-center no-wrap q-px-sm q-py-xs"
-                :class="
-                  prop.selected || selectedKey === prop.node.id
-                    ? 'bg-primary text-white rounded'
-                    : ''
-                "
-                style="width: 100%"
-              >
-                <q-icon
-                  :name="prop.node.icon || 'description'"
-                  :color="prop.selected || selectedKey === prop.node.id ? 'white' : 'grey-7'"
-                />
-                <div class="q-ml-sm column">
-                  <div
-                    class="ellipsis"
-                    :class="prop.selected || selectedKey === prop.node.id ? 'text-white' : ''"
-                  >
-                    {{ prop.node.label }}
-                    <q-badge
-                      v-if="prop.node.status === 'rascunho'"
-                      color="warning"
-                      class="q-ml-xs"
-                      align="middle"
-                      >Rascunho</q-badge
-                    >
-                  </div>
-                  <div
-                    v-if="prop.node.tipo"
-                    class="text-caption"
-                    :class="
-                      prop.selected || selectedKey === prop.node.id ? 'text-white' : 'text-grey-7'
-                    "
-                  >
-                    {{ prop.node.tipo }}
-                  </div>
-                </div>
-              </div>
-            </template>
-          </q-tree>
-        </div>
+        <DocumentTree
+          :processo="processo"
+          :setorAtualLabel="setorAtualLabel"
+          :documentos="documentos"
+          :selected="selectedKey"
+          :externosAguardando="externosAguardando"
+          @update:selected="onSelect"
+          @externo:refresh="onExternoRefresh"
+        />
       </template>
       <template #after>
         <q-toolbar dense class="bg-primary text-white" style="min-height: 40px; padding: 0 8px">
@@ -167,16 +120,22 @@
         <q-card>
           <q-card-section>
             <div class="text-h6" v-if="!selectedDoc">Dados do Processo</div>
-            <div class="text-h6" v-if="selectedDoc">{{ selectedDoc.titulo }}</div>
-            <div v-if="selectedDoc" class="text-caption text-grey-8 q-mt-xs">
-              Status: {{ selectedDoc.status }} •
-              <span
-                >{{ selectedDoc.modo === 'Editor' ? 'Criado' : 'Enviado' }}: {{ criadoEmStr }}</span
-              >
-              <span v-if="autorStr"> • por {{ autorStr }}</span>
+            <div class="flex items-center">
+              <div class="text-h6" v-if="selectedDoc">
+                {{ selectedDoc.titulo }}
+              </div>
+              <q-space />
+              <div v-if="selectedDoc" class="text-caption text-grey-8 q-mt-xs">
+                Status: {{ selectedDoc.status }} •
+                <span
+                  >{{ selectedDoc.modo === 'Editor' ? 'Criado' : 'Enviado' }}:
+                  {{ criadoEmStr }}</span
+                >
+                <span v-if="autorStr"> • por {{ autorStr }}</span>
+              </div>
             </div>
           </q-card-section>
-          <q-separator class="q-my-sm" />
+          <q-separator />
 
           <!-- Área principal: dados do processo ou documento selecionado -->
           <q-card-section v-if="selectedKey === 'processo' && processo" class="q-pa-sm">
@@ -802,6 +761,8 @@ import { listarUsuarios } from 'src/services/usuariosService'
 import { listarPartesCadastro, criarParteCadastro } from 'src/services/partesCadastroService'
 import ParteCadastroForm from 'src/components/ParteCadastroForm.vue'
 import { fileToBase64 } from 'src/utils/file'
+import DocumentTree from 'src/components/DocumentTree.vue'
+import { listarDocumentosExternosPorProcesso } from 'src/services/externoDocsService'
 
 const $q = useQuasar()
 const route = useRoute()
@@ -811,6 +772,7 @@ const documentos = ref([])
 const splitterModel = ref(25)
 const selectedKey = ref('processo')
 const selectedDoc = ref(null)
+const externosAguardando = ref([])
 
 // Partes do processo
 const partes = ref([])
@@ -1222,17 +1184,6 @@ const assinaturaEmStr = computed(() => {
   }
 })
 
-const docNodes = computed(() => {
-  const items = documentos.value.map((doc) => ({
-    id: doc.id,
-    label: doc.titulo,
-    tipo: doc.tipo,
-    icon: 'description',
-    status: doc.status,
-  }))
-  return [{ id: 'processo', label: 'Dados do Processo', icon: 'assignment' }, ...items]
-})
-
 async function loadDocumentos() {
   try {
     const { id } = route.params
@@ -1254,6 +1205,26 @@ async function loadDocumentos() {
     console.error(e)
     $q.notify({ type: 'negative', message: 'Falha ao carregar documentos do processo' })
   }
+}
+
+async function loadExternosAguardando() {
+  try {
+    const { id } = route.params
+    const data = await listarDocumentosExternosPorProcesso({
+      processoId: id,
+      status: 'aguardando_analise',
+    })
+    externosAguardando.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    console.error(e)
+    externosAguardando.value = []
+    $q.notify({ type: 'negative', message: 'Falha ao carregar anexos externos aguardando análise' })
+  }
+}
+
+async function onExternoRefresh() {
+  await loadDocumentos()
+  await loadExternosAguardando()
 }
 
 async function loadDocumento(docId) {
@@ -1342,6 +1313,7 @@ onMounted(async () => {
     }
     await loadSetoresOptions()
     await loadDocumentos()
+    await loadExternosAguardando()
   } catch (e) {
     console.error(e)
     $q.notify({ type: 'negative', message: 'Falha ao carregar processo' })
