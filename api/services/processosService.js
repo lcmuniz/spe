@@ -659,13 +659,13 @@ async function consultarPublico(valorRaw, cpf, chave) {
             d.status,
             d.file_name AS "fileName",
             d.criado_em AS "criadoEm",
-            d.assinado_por_login AS "assinadoPorLogin",
+            d.assinado_por AS "assinadoPorLogin",
             a.nome AS "assinaturaNome",
             a.cargo AS "assinaturaCargo",
             a.setor AS "assinanteSetor"
        FROM processo_documentos pd
        JOIN documentos d ON d.id = pd.documento_id
-       LEFT JOIN usuarios a ON a.login = d.assinado_por_login
+       LEFT JOIN usuarios a ON a.login = d.assinado_por
       WHERE pd.processo_id = $1 AND LOWER(d.status) = 'assinado'
       ORDER BY d.criado_em ASC`,
     [processoId],

@@ -37,59 +37,54 @@ async function listProcessosPorParteCredencial(cpf, chave) {
 }
 
 async function _validarParteProcesso(numero, cpf, chave) {
-  const num = String(numero || '').trim()
+  const procNumero = String(numero || '').trim()
   const doc = String(cpf || '').trim()
   const key = String(chave || '').trim()
-  if (!num || !doc || !key) {
-    const err = new Error('Número, CPF e chave são obrigatórios')
+  if (!procNumero || !doc || !key) {
+    const err = new Error('Parâmetros insuficientes')
     err.code = 400
     throw err
   }
-  const { rows: prows } = await query(`SELECT id FROM processos WHERE numero = $1 LIMIT 1`, [num])
-  if (prows.length === 0) {
-    const err = new Error('Processo não encontrado')
-    err.code = 404
-    throw err
-  }
-  const processoId = prows[0].id
-  const { rows: vrows } = await query(
-    `SELECT 1
-       FROM processo_partes pp
+  const { rows } = await query(
+    `SELECT p.id AS "processoId", cp.id AS "parteId"
+       FROM processos p
+       JOIN processo_partes pp ON pp.processo_id = p.id
        JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
-      WHERE pp.processo_id = $1
+      WHERE p.numero = $1
         AND cp.documento = $2
         AND cp.chave = $3
         AND cp.chave_ativo = TRUE
       LIMIT 1`,
-    [processoId, doc, key],
+    [procNumero, doc, key],
   )
-  if (vrows.length === 0) {
-    const err = new Error('Credenciais não conferem para este processo')
-    err.code = 403
+  if (!rows.length) {
+    const err = new Error('Processo ou credenciais inválidas')
+    err.code = 404
     throw err
   }
-  return { processoId, parteDocumento: doc }
+  return { processoId: rows[0].processoId, parteId: rows[0].parteId }
 }
 
 async function listarDocumentosExternosTemporarios(numero, cpf, chave) {
-  const { processoId, parteDocumento } = await _validarParteProcesso(numero, cpf, chave)
+  const { processoId, parteId } = await _validarParteProcesso(numero, cpf, chave)
   const { rows } = await query(
     `SELECT id,
             file_name AS "fileName",
             status,
             titulo,
-            criado_em AS "criadoEm"
+            criado_em AS "criadoEm",
+            rejeicao_motivo AS "motivo"
        FROM externo_documentos_temp
       WHERE processo_id = $1
-        AND parte_documento = $2
+        AND parte_id = $2
       ORDER BY criado_em DESC`,
-    [processoId, parteDocumento],
+    [processoId, parteId],
   )
   return rows
 }
 
 async function anexarDocumentoExternoTemporario(numero, cpf, chave, fileName, contentBase64, titulo) {
-  const { processoId, parteDocumento } = await _validarParteProcesso(numero, cpf, chave)
+  const { processoId, parteId } = await _validarParteProcesso(numero, cpf, chave)
   const name = String(fileName || '').trim()
   const content = String(contentBase64 || '').trim()
   if (!name || !content) {
@@ -99,16 +94,17 @@ async function anexarDocumentoExternoTemporario(numero, cpf, chave, fileName, co
   }
   const id = uuidv4()
   await query(
-    `INSERT INTO externo_documentos_temp (id, processo_id, parte_documento, file_name, content_base64, status, titulo)
+    `INSERT INTO externo_documentos_temp (id, processo_id, parte_id, file_name, content_base64, status, titulo)
      VALUES ($1, $2, $3, $4, $5, 'aguardando_analise', $6)`,
-    [id, processoId, parteDocumento, name, content, titulo || null],
+    [id, processoId, parteId, name, content, titulo || null],
   )
   const { rows } = await query(
     `SELECT id,
             file_name AS "fileName",
             status,
             titulo,
-            criado_em AS "criadoEm"
+            criado_em AS "criadoEm",
+            rejeicao_motivo AS "motivo"
        FROM externo_documentos_temp
       WHERE id = $1`,
     [id],
@@ -116,8 +112,135 @@ async function anexarDocumentoExternoTemporario(numero, cpf, chave, fileName, co
   return rows[0]
 }
 
+async function listarDocumentosExternosPorProcesso(processoId, { status } = {}) {
+  const pid = String(processoId || '').trim()
+  if (!pid) {
+    const err = new Error('processoId é obrigatório')
+    err.code = 400
+    throw err
+  }
+  const params = [pid]
+  const statusFilter = String(status || '').toLowerCase()
+  const whereStatus = statusFilter ? `AND LOWER(edt.status) = $2` : ''
+  if (whereStatus) params.push(statusFilter)
+  const { rows } = await query(
+    `SELECT edt.id,
+            edt.file_name AS "fileName",
+            edt.status,
+            edt.titulo,
+            edt.criado_em AS "criadoEm",
+            edt.parte_id AS "parteId",
+            cp.nome AS "parteNome",
+            cp.documento AS "parteDocumento"
+       FROM externo_documentos_temp edt
+       JOIN cadastro_partes cp ON cp.id = edt.parte_id
+       JOIN processo_partes pp ON pp.processo_id = edt.processo_id AND pp.cadastro_parte_id = cp.id
+      WHERE edt.processo_id = $1 ${whereStatus}
+      ORDER BY edt.criado_em DESC`,
+    params,
+  )
+  return rows
+}
+
+// Visualizar documento temporário externo (detalhes + conteúdo)
+async function getDocumentoTemporario(processoId, tempId) {
+  const pid = String(processoId || '').trim()
+  const tid = String(tempId || '').trim()
+  if (!pid || !tid) {
+    const err = new Error('processoId e tempId são obrigatórios')
+    err.code = 400
+    throw err
+  }
+  const { rows } = await query(
+    `SELECT edt.id,
+            edt.processo_id AS "processoId",
+            edt.parte_id AS "parteId",
+            edt.file_name AS "fileName",
+            edt.content_base64 AS "contentBase64",
+            edt.titulo,
+            edt.status,
+            edt.criado_em AS "criadoEm",
+            cp.nome AS "parteNome",
+            cp.documento AS "parteDocumento"
+       FROM externo_documentos_temp edt
+       JOIN cadastro_partes cp ON cp.id = edt.parte_id
+      WHERE edt.id = $2
+        AND edt.processo_id = $1
+      LIMIT 1`,
+    [pid, tid],
+  )
+  if (!rows.length) {
+    const err = new Error('Documento externo não encontrado')
+    err.code = 404
+    throw err
+  }
+  return rows[0]
+}
+
+// Aceitar documento temporário: junta ao processo como documento assinado
+async function aceitarDocumentoTemporario(processoId, tempId) {
+  const temp = await getDocumentoTemporario(processoId, tempId)
+  const status = String(temp.status || '').toLowerCase()
+  if (status !== 'aguardando_analise') {
+    const err = new Error('Documento já analisado')
+    err.code = 409
+    throw err
+  }
+  const docId = uuidv4()
+  // Cria documento
+  await query(
+    `INSERT INTO documentos (id, titulo, tipo, modo, status, file_name, content_base64, autor, assinado_por, assinado_em)
+     VALUES ($1, $2, $3, 'Upload', 'assinado', $4, $5, $6, $6, now())`,
+    [
+      docId,
+      temp.titulo || temp.fileName || 'Documento Externo',
+      'Documento',
+      temp.fileName,
+      temp.contentBase64,
+      String(temp.parteId || ''),
+    ],
+  )
+  // Vincula ao processo
+  await query(
+    `INSERT INTO processo_documentos (processo_id, documento_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [processoId, docId],
+  )
+  // Atualiza status temporário para juntado
+  await query(
+    `UPDATE externo_documentos_temp SET status = 'juntado' WHERE id = $1`,
+    [tempId],
+  )
+  return { ok: true, documentoId: docId }
+}
+
+// Rejeitar documento temporário com motivo
+async function rejeitarDocumentoTemporario(processoId, tempId, motivo) {
+  const temp = await getDocumentoTemporario(processoId, tempId)
+  const status = String(temp.status || '').toLowerCase()
+  if (status !== 'aguardando_analise') {
+    const err = new Error('Documento já analisado')
+    err.code = 409
+    throw err
+  }
+  const mot = String(motivo || '').trim()
+  if (!mot) {
+    const err = new Error('Motivo é obrigatório')
+    err.code = 400
+    throw err
+  }
+  await query(
+    `UPDATE externo_documentos_temp SET status = 'rejeitado', rejeicao_motivo = $2, rejeitado_em = now() WHERE id = $1`,
+    [tempId, mot],
+  )
+  return { ok: true }
+}
+
 module.exports = {
   listProcessosPorParteCredencial,
   listarDocumentosExternosTemporarios,
   anexarDocumentoExternoTemporario,
+  listarDocumentosExternosPorProcesso,
+  getDocumentoTemporario,
+  aceitarDocumentoTemporario,
+  rejeitarDocumentoTemporario,
 }

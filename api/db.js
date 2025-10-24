@@ -64,15 +64,31 @@ async function initDb() {
   // Coluna de autor (apenas login); remover coluna obsoleta de nome
   await pool.query(`
     ALTER TABLE documentos
-      ADD COLUMN IF NOT EXISTS autor_login VARCHAR(100);
+      ADD COLUMN IF NOT EXISTS autor VARCHAR(100);
   `)
+  // Backfill autor a partir de autor_login (quando existir)
+  try {
+    await pool.query(`
+      UPDATE documentos SET autor = autor_login WHERE autor IS NULL;
+    `)
+  } catch (_e) {
+    // ignora se coluna não existir
+  }
   await pool.query(`
     ALTER TABLE documentos
-      DROP COLUMN IF EXISTS autor_nome;
+      DROP COLUMN IF EXISTS autor_login;
   `)
 
-  // Assinatura de documentos: adicionar colunas
-  await pool.query(`ALTER TABLE documentos ADD COLUMN IF NOT EXISTS assinado_por_login VARCHAR(100);`)
+  // Assinatura de documentos: renomear assinado_por_login -> assinado_por
+  await pool.query(`ALTER TABLE documentos ADD COLUMN IF NOT EXISTS assinado_por VARCHAR(100);`)
+  try {
+    await pool.query(`
+      UPDATE documentos SET assinado_por = assinado_por_login WHERE assinado_por IS NULL;
+    `)
+  } catch (_e) {
+    // ignora se coluna não existir
+  }
+  await pool.query(`ALTER TABLE documentos DROP COLUMN IF EXISTS assinado_por_login;`)
   await pool.query(`ALTER TABLE documentos ADD COLUMN IF NOT EXISTS assinado_em TIMESTAMPTZ;`)
 
   await pool.query(`
@@ -87,7 +103,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS externo_documentos_temp (
       id UUID PRIMARY KEY,
       processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
-      parte_documento VARCHAR(50) NOT NULL,
+      parte_id UUID NOT NULL REFERENCES cadastro_partes(id) ON DELETE CASCADE,
       file_name VARCHAR(255) NOT NULL,
       content_base64 TEXT NOT NULL,
       status VARCHAR(32) NOT NULL DEFAULT 'aguardando_analise',
@@ -96,7 +112,43 @@ async function initDb() {
     );
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_proc ON externo_documentos_temp(processo_id);`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_parte ON externo_documentos_temp(parte_documento);`)
+  // Campos adicionais para rejeição de anexos externos
+  await pool.query(`ALTER TABLE externo_documentos_temp ADD COLUMN IF NOT EXISTS rejeicao_motivo TEXT;`)
+  await pool.query(`ALTER TABLE externo_documentos_temp ADD COLUMN IF NOT EXISTS rejeitado_em TIMESTAMPTZ;`)
+
+  // Migração suave: adicionar coluna parte_id em bases antigas, popular e remover coluna antiga
+  await pool.query(`
+    ALTER TABLE externo_documentos_temp
+      ADD COLUMN IF NOT EXISTS parte_id UUID;
+  `)
+  await pool.query(`DROP INDEX IF EXISTS idx_ext_docs_temp_parte;`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_parte_id ON externo_documentos_temp(parte_id);`)
+  // Backfill parte_id a partir de parte_documento apenas se coluna existir
+  try {
+    const { rows: colExists } = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = $1
+           AND table_name = 'externo_documentos_temp'
+           AND column_name = 'parte_documento'
+         LIMIT 1`,
+      [schema],
+    )
+    if (colExists.length > 0) {
+      await pool.query(`
+        UPDATE externo_documentos_temp edt
+           SET parte_id = cp.id
+          FROM cadastro_partes cp
+         WHERE edt.parte_id IS NULL
+           AND cp.documento = edt.parte_documento;
+      `)
+    }
+  } catch (e) {
+    console.warn('Aviso: backfill de parte_id não aplicado', e.message)
+  }
+  await pool.query(`
+    ALTER TABLE externo_documentos_temp
+      DROP COLUMN IF EXISTS parte_documento;
+  `)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS processo_partes (

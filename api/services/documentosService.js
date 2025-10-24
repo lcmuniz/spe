@@ -25,15 +25,17 @@ async function listByProcesso(processoId, viewerSetorRaw) {
             d.status,
             d.file_name AS "fileName",
             d.criado_em AS "criadoEm",
-            d.autor_login AS "autorLogin",
-            u.nome AS "autorNome",
+            d.autor AS "autor",
+            COALESCE(u.nome, ca.nome) AS "autorNome",
             u.setor AS "autorSetor",
-            d.assinado_por_login AS "assinadoPorLogin",
+            d.assinado_por AS "assinadoPor",
             a.setor AS "assinanteSetor"
        FROM processo_documentos pd
        JOIN documentos d ON d.id = pd.documento_id
-       LEFT JOIN usuarios u ON u.login = d.autor_login
-       LEFT JOIN usuarios a ON a.login = d.assinado_por_login
+       LEFT JOIN usuarios u ON u.login = d.autor
+       LEFT JOIN cadastro_partes ca ON ca.id::text = d.autor
+       LEFT JOIN usuarios a ON a.login = d.assinado_por
+       LEFT JOIN cadastro_partes cs ON cs.id::text = d.assinado_por
       WHERE pd.processo_id = $1 ${filterByViewer}
       ORDER BY d.criado_em ASC`,
     params,
@@ -66,7 +68,7 @@ async function linkDocumento(processoId, documentoId) {
   return { ok: true }
 }
 
-async function createDocumento({ titulo, tipo, modo, autorLogin }) {
+async function createDocumento({ titulo, tipo, modo, autor, autorLogin }) {
   if (!titulo) {
     const err = new Error('Título é obrigatório')
     err.code = 400
@@ -74,13 +76,14 @@ async function createDocumento({ titulo, tipo, modo, autorLogin }) {
   }
   const id = uuidv4()
   await query(
-    `INSERT INTO documentos (id, titulo, tipo, modo, status, autor_login) VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, titulo, tipo || 'Documento', modo || 'Editor', 'rascunho', autorLogin || null],
+    `INSERT INTO documentos (id, titulo, tipo, modo, status, autor) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, titulo, tipo || 'Documento', modo || 'Editor', 'rascunho', autor || autorLogin || null],
   )
   const { rows } = await query(
-    `SELECT d.id, d.titulo, d.tipo, d.modo, d.status, d.criado_em AS "criadoEm", d.autor_login AS "autorLogin", u.nome AS "autorNome"
+    `SELECT d.id, d.titulo, d.tipo, d.modo, d.status, d.criado_em AS "criadoEm", d.autor AS "autor", COALESCE(u.nome, ca.nome) AS "autorNome"
        FROM documentos d
-       LEFT JOIN usuarios u ON u.login = d.autor_login
+       LEFT JOIN usuarios u ON u.login = d.autor
+       LEFT JOIN cadastro_partes ca ON ca.id::text = d.autor
       WHERE d.id = $1`,
     [id],
   )
@@ -121,7 +124,7 @@ async function _validarPosicaoFimArvore({ documentoId, usuarioLogin, exigeAtribu
     `SELECT d.id, d.status, d.criado_em AS "criadoEm", a.setor AS "assinanteSetor"
        FROM processo_documentos pd
        JOIN documentos d ON d.id = pd.documento_id
-       LEFT JOIN usuarios a ON a.login = d.assinado_por_login
+       LEFT JOIN usuarios a ON a.login = d.assinado_por
       WHERE pd.processo_id = $1
       ORDER BY d.criado_em ASC`,
     [processoId],
@@ -146,9 +149,9 @@ async function _validarPosicaoFimArvore({ documentoId, usuarioLogin, exigeAtribu
   return { processoId }
 }
 
-async function uploadConteudo(id, { fileName, contentBase64, usuarioLogin, autorLogin }) {
+async function uploadConteudo(id, { fileName, contentBase64, usuarioLogin, autorLogin, autor }) {
   const { rows: drows } = await query(
-    `SELECT status, assinado_por_login FROM documentos WHERE id = $1`,
+    `SELECT status, assinado_por FROM documentos WHERE id = $1`,
     [id],
   )
   if (drows.length === 0) {
@@ -157,7 +160,7 @@ async function uploadConteudo(id, { fileName, contentBase64, usuarioLogin, autor
     throw err
   }
   const statusAtual = String(drows[0].status || '').toLowerCase()
-  const assinante = drows[0].assinado_por_login || null
+  const assinante = drows[0].assinado_por || null
   if (statusAtual === 'rascunho') {
     if (!usuarioLogin) {
       const err = new Error('Usuário executor é obrigatório para editar rascunho')
@@ -181,13 +184,13 @@ async function uploadConteudo(id, { fileName, contentBase64, usuarioLogin, autor
 
   const sql =
     statusAtual === 'assinado'
-      ? `UPDATE documentos SET modo = 'Upload', file_name = $1, content_base64 = $2, autor_login = COALESCE($3, autor_login), status = 'rascunho', assinado_por_login = NULL, assinado_em = NULL WHERE id = $4`
-      : `UPDATE documentos SET modo = 'Upload', file_name = $1, content_base64 = $2, autor_login = COALESCE($3, autor_login) WHERE id = $4`
+      ? `UPDATE documentos SET modo = 'Upload', file_name = $1, content_base64 = $2, autor = COALESCE($3, autor), status = 'rascunho', assinado_por = NULL, assinado_em = NULL WHERE id = $4`
+      : `UPDATE documentos SET modo = 'Upload', file_name = $1, content_base64 = $2, autor = COALESCE($3, autor) WHERE id = $4`
 
   const { rowCount } = await query(sql, [
     fileName || 'arquivo.bin',
     contentBase64 || null,
-    usuarioLogin || autorLogin || null,
+    usuarioLogin || autor || autorLogin || null,
     id,
   ])
   if (rowCount === 0) {
@@ -198,9 +201,9 @@ async function uploadConteudo(id, { fileName, contentBase64, usuarioLogin, autor
   return { ok: true, statusAnterior: statusAtual, assinante }
 }
 
-async function editorConteudo(id, { conteudo, usuarioLogin, autorLogin }) {
+async function editorConteudo(id, { conteudo, usuarioLogin, autorLogin, autor }) {
   const { rows: drows } = await query(
-    `SELECT status, assinado_por_login FROM documentos WHERE id = $1`,
+    `SELECT status, assinado_por FROM documentos WHERE id = $1`,
     [id],
   )
   if (drows.length === 0) {
@@ -209,7 +212,7 @@ async function editorConteudo(id, { conteudo, usuarioLogin, autorLogin }) {
     throw err
   }
   const statusAtual = String(drows[0].status || '').toLowerCase()
-  const assinante = drows[0].assinado_por_login || null
+  const assinante = drows[0].assinado_por || null
 
   if (statusAtual === 'rascunho') {
     if (!usuarioLogin) {
@@ -234,8 +237,8 @@ async function editorConteudo(id, { conteudo, usuarioLogin, autorLogin }) {
   }
 
   const { rowCount } = await query(
-    `UPDATE documentos SET modo = 'Editor', conteudo = $1, autor_login = COALESCE($2, autor_login) WHERE id = $3`,
-    [conteudo || null, usuarioLogin || autorLogin || null, id],
+    `UPDATE documentos SET modo = 'Editor', conteudo = $1, autor = COALESCE($2, autor) WHERE id = $3`,
+    [conteudo || null, usuarioLogin || autor || autorLogin || null, id],
   )
   if (rowCount === 0) {
     const err = new Error('Documento não encontrado')
@@ -256,15 +259,17 @@ async function getDocumentoById(id) {
             d.content_base64 AS "contentBase64",
             d.conteudo,
             d.criado_em AS "criadoEm",
-            d.autor_login AS "autorLogin",
-            u.nome AS "autorNome",
-            d.assinado_por_login AS "assinadoPorLogin",
+            d.autor AS "autor",
+            COALESCE(u.nome, ca.nome) AS "autorNome",
+            d.assinado_por AS "assinadoPor",
             d.assinado_em AS "assinadoEm",
-            a.nome AS "assinaturaNome",
+            COALESCE(a.nome, cs.nome) AS "assinaturaNome",
             a.cargo AS "assinaturaCargo"
        FROM documentos d
-       LEFT JOIN usuarios u ON u.login = d.autor_login
-       LEFT JOIN usuarios a ON a.login = d.assinado_por_login
+       LEFT JOIN usuarios u ON u.login = d.autor
+       LEFT JOIN cadastro_partes ca ON ca.id::text = d.autor
+       LEFT JOIN usuarios a ON a.login = d.assinado_por
+       LEFT JOIN cadastro_partes cs ON cs.id::text = d.assinado_por
       WHERE d.id = $1`,
     [id],
   )
@@ -322,7 +327,7 @@ async function assinar(id, { usuarioLogin }) {
   const { rowCount } = await query(
     `UPDATE documentos
        SET status = 'assinado',
-           assinado_por_login = $2,
+           assinado_por = $2,
            assinado_em = now()
      WHERE id = $1`,
     [id, usuarioLogin],
@@ -342,7 +347,7 @@ async function deletarRascunho(id, { usuarioLogin }) {
     err.code = 400
     throw err
   }
-  const { rows: drows } = await query(`SELECT status, autor_login FROM documentos WHERE id = $1`, [
+  const { rows: drows } = await query(`SELECT status, autor FROM documentos WHERE id = $1`, [
     id,
   ])
   if (drows.length === 0) {
@@ -351,7 +356,7 @@ async function deletarRascunho(id, { usuarioLogin }) {
     throw err
   }
   const statusAtual = String(drows[0].status || '').toLowerCase()
-  const autorLogin = drows[0].autor_login || null
+  const autorLogin = drows[0].autor || null
   if (statusAtual === 'assinado') {
     const err = new Error('Documento assinado não pode ser excluído')
     err.code = 400
@@ -499,7 +504,7 @@ async function gerarPdfPublico(id, cpf, chaveRaw) {
   return { fileName: resultFileName, contentBase64: pdfBase64 }
 }
 
-async function seedByProcesso(processoId, { autorLogin } = {}) {
+async function seedByProcesso(processoId, { autor, autorLogin } = {}) {
   // Verifica existência do processo e obtém setor atual e atribuição
   const { rows: procRows } = await query(
     `SELECT id, setor_atual AS "setorAtual", atribuido_usuario AS "atribuidoUsuario" FROM processos WHERE id = $1`,
@@ -521,15 +526,15 @@ async function seedByProcesso(processoId, { autorLogin } = {}) {
   }
 
   const setorAtual = String(procRows[0].setorAtual || '').toUpperCase()
-  let autor = String(autorLogin || procRows[0].atribuidoUsuario || '')
+  let autorResolved = String(autor || autorLogin || procRows[0].atribuidoUsuario || '')
 
-  if (!autor) {
+  if (!autorResolved) {
     // Escolhe um usuário do setor atual como autor, se possível
     const { rows: urows } = await query(
       `SELECT login FROM usuarios WHERE UPPER(setor) = $1 ORDER BY nome ASC LIMIT 1`,
       [setorAtual],
     )
-    autor = String(urows[0]?.login || '')
+    autorResolved = String(urows[0]?.login || '')
   }
 
   // Cria documento inicial (rascunho, modo Editor)
@@ -537,7 +542,7 @@ async function seedByProcesso(processoId, { autorLogin } = {}) {
     titulo: 'Documento inicial',
     tipo: 'Documento',
     modo: 'Editor',
-    autorLogin: autor || null,
+    autor: autorResolved || null,
   })
 
   // Vincula ao processo

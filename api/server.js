@@ -565,6 +565,21 @@ app.get('/api/processos/:id/documentos', async (req, res) => {
   }
 })
 
+// GET /api/processos/:id/externo/documentos
+app.get('/api/processos/:id/externo/documentos', async (req, res) => {
+  try {
+    const { id } = req.params
+    const status = req.query.status || undefined
+    const rows = await externoService.listarDocumentosExternosPorProcesso(id, { status })
+    res.json(rows)
+  } catch (e) {
+    console.error('Erro em GET /api/processos/:id/externo/documentos', e)
+    const code = e.code || e.status || 500
+    const msg = code === 500 ? 'Erro ao listar anexos externos do processo' : e.message
+    res.status(code).json({ error: msg })
+  }
+})
+
 // POST /api/processos/:id/documentos/seed
 app.post('/api/processos/:id/documentos/seed', async (req, res) => {
   try {
@@ -847,9 +862,8 @@ app.post('/api/public/externo/processos/:numero/documentos', async (req, res) =>
   }
 })
 
-app.listen(PORT, () => {
-  console.log(`SPE API mock rodando em http://localhost:${PORT}`)
-})
+// Inicialização do servidor movida para o final para evitar duplicidade
+
 
 app.get('/api/processos/:id/tramites', async (req, res) => {
   try {
@@ -961,4 +975,54 @@ app.post('/api/processos/:id/arquivar', async (req, res) => {
     const msg = status === 500 ? 'Erro ao arquivar processo' : e.message
     res.status(status).json({ error: msg })
   }
+})
+
+// GET /api/processos/:id/externo/documentos/:tempId (visualizar)
+app.get('/api/processos/:id/externo/documentos/:tempId', async (req, res) => {
+  try {
+    const { id, tempId } = req.params
+    const doc = await externoService.getDocumentoTemporario(id, tempId)
+    res.json(doc)
+  } catch (e) {
+    console.error('Erro em GET /api/processos/:id/externo/documentos/:tempId', e)
+    const code = e.code || e.status || 500
+    const msg = code === 500 ? 'Erro ao obter documento externo temporário' : e.message
+    res.status(code).json({ error: msg })
+  }
+})
+
+// POST /api/processos/:id/externo/documentos/:tempId/aceitar
+app.post('/api/processos/:id/externo/documentos/:tempId/aceitar', async (req, res) => {
+  try {
+    const { id, tempId } = req.params
+    const result = await externoService.aceitarDocumentoTemporario(id, tempId)
+    res.json(result)
+  } catch (e) {
+    console.error('Erro em POST /api/processos/:id/externo/documentos/:tempId/aceitar', e)
+    const code = e.code || e.status || 500
+    const msg = code === 500 ? 'Erro ao aceitar documento externo' : e.message
+    res.status(code).json({ error: msg })
+  }
+})
+
+// POST /api/processos/:id/externo/documentos/:tempId/rejeitar
+app.post('/api/processos/:id/externo/documentos/:tempId/rejeitar', async (req, res) => {
+  try {
+    const { id, tempId } = req.params
+    const { motivo } = req.body || {}
+    const result = await externoService.rejeitarDocumentoTemporario(id, tempId, motivo)
+    res.json(result)
+  } catch (e) {
+    console.error('Erro em POST /api/processos/:id/externo/documentos/:tempId/rejeitar', e)
+    const code = e.code || e.status || 500
+    const msg = code === 500 ? 'Erro ao rejeitar documento externo' : e.message
+    res.status(code).json({ error: msg })
+  }
+})
+
+// Saúde
+app.get('/health', (_, res) => res.json({ status: 'ok' }))
+
+app.listen(PORT, () => {
+  console.log(`SPE API mock rodando em http://localhost:${PORT}`)
 })
