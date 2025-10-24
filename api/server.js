@@ -834,6 +834,21 @@ app.get('/api/public/externo/processos', async (req, res) => {
     res.status(code).json({ error: err.message || 'Erro interno' })
   }
 })
+
+app.post('/api/public/externo/processos', async (req, res) => {
+  try {
+    const { cpf, chave, assunto, tipo, observacoes } = req.body || {}
+    const created = await externoService.criarProcessoExterno(
+      String(cpf || ''),
+      String(chave || ''),
+      { assunto: String(assunto || ''), tipo: String(tipo || ''), observacoes: String(observacoes || '') }
+    )
+    res.status(201).json(created)
+  } catch (err) {
+    const code = err.code || 500
+    res.status(code).json({ error: err.message || 'Erro interno' })
+  }
+})
 // Documentos temporários externos (listar e anexar)
 app.get('/api/public/externo/processos/:numero/documentos', async (req, res) => {
   try {
@@ -1026,3 +1041,5 @@ app.get('/health', (_, res) => res.json({ status: 'ok' }))
 app.listen(PORT, () => {
   console.log(`SPE API mock rodando em http://localhost:${PORT}`)
 })
+
+// ...

@@ -456,6 +456,7 @@ async function listProcessos(q = {}) {
         p.id,
         p.numero,
         p.assunto,
+        p.tipo AS "tipo",
         p.status,
         p.prioridade,
         p.prazo AS "prazo",

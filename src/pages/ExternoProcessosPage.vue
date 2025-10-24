@@ -26,6 +26,14 @@
               <div class="text-h6">Meus processos</div>
               <div class="text-caption">Sessão ativa</div>
             </div>
+            <div class="col-auto">
+              <q-btn
+                color="primary"
+                icon="add_circle"
+                label="Iniciar novo processo"
+                @click="iniciarNovoProcesso"
+              />
+            </div>
           </q-card-section>
           <q-card-section>
             <q-table
@@ -64,17 +72,46 @@
         </q-card>
       </div>
     </div>
+
+    <!-- Diálogo: Iniciar novo processo -->
+    <q-dialog v-model="novoDialogOpen">
+      <q-card style="min-width: 600px">
+        <q-card-section class="row items-center q-pb-none">
+          <div class="text-h6">Iniciar novo processo</div>
+          <q-space />
+          <q-btn icon="close" flat round dense v-close-popup />
+        </q-card-section>
+        <q-card-section class="q-gutter-md">
+          <q-select
+            v-model="novoForm.tipo"
+            :options="tipoOptions"
+            label="Tipo do processo"
+            emit-value
+            map-options
+          />
+          <q-input v-model="novoForm.assunto" label="Assunto" />
+          <q-input v-model="novoForm.observacoes" type="textarea" autogrow label="Observações" />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancelar" v-close-popup />
+          <q-btn color="primary" label="Criar" :loading="novoLoading" @click="novoSubmit" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
 import { useExternoStore } from 'src/stores/externo-store'
-import { listarMeusProcessosPorCpfChave } from 'src/services/processosService'
+import { listarMeusProcessosPorCpfChave, criarProcessoExterno } from 'src/services/processosService'
+import { listarTiposProcesso } from 'src/services/catalogService'
 
 const externo = useExternoStore()
 const router = useRouter()
+const $q = useQuasar()
 
 const processos = ref([])
 const carregando = ref(false)
@@ -103,6 +140,11 @@ const columns = [
   { name: 'acoes', label: 'Ações', field: 'acoes', align: 'center' },
 ]
 
+const novoDialogOpen = ref(false)
+const novoLoading = ref(false)
+const tipoOptions = ref([])
+const novoForm = reactive({ tipo: 'Processo', assunto: '', observacoes: '' })
+
 onMounted(async () => {
   externo.initialize()
   if (!externo.loggedIn) {
@@ -110,6 +152,7 @@ onMounted(async () => {
     return
   }
   await carregar()
+  await loadTipoOptions()
 })
 
 async function carregar() {
@@ -144,5 +187,65 @@ function abrirUploadDocumentos(row) {
   const numero = row?.numero
   if (!numero) return
   router.push(`/externo/processo/${encodeURIComponent(numero)}/documentos`)
+}
+
+async function loadTipoOptions() {
+  try {
+    const data = await listarTiposProcesso()
+    const arr = Array.isArray(data) ? data : []
+    tipoOptions.value = arr.map((n) => ({ label: n, value: n }))
+    const valores = new Set(arr)
+    if (!valores.has(novoForm.tipo)) {
+      novoForm.tipo = arr[0] || 'Processo'
+    }
+  } catch (e) {
+    console.error('Falha ao carregar tipos de processo', e)
+    tipoOptions.value = [{ label: 'Processo', value: 'Processo' }]
+    novoForm.tipo = 'Processo'
+  }
+}
+
+function novoOnReset() {
+  novoForm.tipo = 'Processo'
+  novoForm.assunto = ''
+  novoForm.observacoes = ''
+}
+
+async function novoSubmit() {
+  if (!novoForm.assunto) {
+    $q.notify({ type: 'negative', message: 'Assunto é obrigatório' })
+    return
+  }
+  if (!novoForm.tipo) {
+    $q.notify({ type: 'negative', message: 'Tipo é obrigatório' })
+    return
+  }
+  novoLoading.value = true
+  try {
+    const created = await criarProcessoExterno(
+      { assunto: novoForm.assunto, tipo: novoForm.tipo, observacoes: novoForm.observacoes },
+      { cpf: externo.cpf, chave: externo.chave },
+    )
+    $q.notify({
+      type: 'positive',
+      message: `Processo ${created.numero} criado e pendente no PROTOCOLO.`,
+    })
+    novoDialogOpen.value = false
+    novoOnReset()
+    await carregar()
+  } catch (e) {
+    $q.notify({
+      type: 'negative',
+      message: e?.response?.data?.error || e.message || 'Falha ao criar processo',
+    })
+  } finally {
+    novoLoading.value = false
+  }
+}
+
+async function iniciarNovoProcesso() {
+  novoOnReset()
+  await loadTipoOptions()
+  novoDialogOpen.value = true
 }
 </script>

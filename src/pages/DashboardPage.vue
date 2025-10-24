@@ -495,6 +495,7 @@ const loading = ref(false)
 const columns = [
   { name: 'acoes', label: 'Ações', field: 'acoes', align: 'right' },
   { name: 'numero', label: 'Nº Processo', field: 'numero', align: 'left' },
+  { name: 'tipo', label: 'Tipo', field: 'tipo', align: 'left' },
   { name: 'assunto', label: 'Assunto', field: 'assunto', align: 'left' },
   { name: 'interessado', label: 'Interessado', field: 'interessado', align: 'left' },
   {

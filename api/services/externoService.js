@@ -1,5 +1,6 @@
 const { query } = require('../db')
 const { v4: uuidv4 } = require('uuid')
+const processosService = require('./processosService')
 
 async function listProcessosPorParteCredencial(cpf, chave) {
   const doc = String(cpf || '').trim()
@@ -235,6 +236,57 @@ async function rejeitarDocumentoTemporario(processoId, tempId, motivo) {
   return { ok: true }
 }
 
+async function criarProcessoExterno(cpf, chave, { assunto, tipo, observacoes }) {
+  const doc = String(cpf || '').trim()
+  const key = String(chave || '').trim()
+  if (!doc || !key) {
+    const err = new Error('CPF e chave são obrigatórios')
+    err.code = 400
+    throw err
+  }
+  if (!assunto) {
+    const err = new Error('Assunto é obrigatório')
+    err.code = 400
+    throw err
+  }
+
+  const { rows: cadRows } = await query(
+    `SELECT id, nome FROM cadastro_partes WHERE documento = $1 AND chave = $2 AND chave_ativo = TRUE LIMIT 1`,
+    [doc, key],
+  )
+  if (!cadRows.length) {
+    const err = new Error('Credenciais inválidas ou parte não encontrada')
+    err.code = 404
+    throw err
+  }
+  const cadId = cadRows[0].id
+
+  const processoView = await processosService.createProcesso({
+    assunto,
+    tipo: tipo || 'Processo',
+    nivelAcesso: 'Público',
+    baseLegal: null,
+    observacoes: observacoes || '',
+    partes: [{ parteId: cadId, papel: 'Interessado' }],
+    documentosIds: [],
+    executadoPor: null,
+    usuario: null,
+  })
+
+  await query(
+    `UPDATE processos
+       SET setor_atual = 'PROTOCOLO',
+           status = 'Aguardando',
+           pendente = TRUE,
+           pendente_origem_setor = 'PROTOCOLO',
+           pendente_destino_setor = 'PROTOCOLO',
+           atribuido_usuario = NULL
+     WHERE id = $1`,
+    [processoView.id],
+  )
+
+  return processoView
+}
 module.exports = {
   listProcessosPorParteCredencial,
   listarDocumentosExternosTemporarios,
@@ -243,4 +295,5 @@ module.exports = {
   getDocumentoTemporario,
   aceitarDocumentoTemporario,
   rejeitarDocumentoTemporario,
+  criarProcessoExterno,
 }

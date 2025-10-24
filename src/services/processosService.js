@@ -111,3 +111,14 @@ export async function listarMeusProcessosPorCpfChave({ cpf, chave }) {
   const { data } = await api.get('/public/externo/processos', { params })
   return Array.isArray(data) ? data : data?.items || data || []
 }
+
+export async function criarProcessoExterno({ assunto, tipo, observacoes }, { cpf, chave }) {
+  const { data } = await api.post('/public/externo/processos', {
+    cpf,
+    chave,
+    assunto,
+    tipo,
+    observacoes,
+  })
+  return data
+}

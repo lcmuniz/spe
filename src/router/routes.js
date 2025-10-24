@@ -30,6 +30,7 @@ const routes = [
       { path: '', redirect: '/externo/login' },
       { path: 'login', component: () => import('pages/ExternoLoginPage.vue') },
       { path: 'processos', component: () => import('pages/ExternoProcessosPage.vue') },
+      { path: 'processos/novo', component: () => import('pages/ExternoNovoProcessoPage.vue') },
       { path: 'processo/:numero/documentos', component: () => import('pages/ExternoDocumentosPage.vue') },
     ],
   },

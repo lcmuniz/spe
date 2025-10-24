@@ -175,13 +175,16 @@
               </div>
             </div>
             <div class="row q-col-gutter-md q-mt-sm">
-              <div class="col-12 col-md-4">
+              <div class="col-12 col-md-3">
+                <q-input v-model="processo.tipo" label="Tipo do Processo" readonly dense />
+              </div>
+              <div class="col-12 col-md-3">
                 <q-input v-model="processo.atribuidoA" label="Atribuído a" readonly dense />
               </div>
-              <div class="col-12 col-md-4">
+              <div class="col-12 col-md-3">
                 <q-input v-model="processo.prioridade" label="Prioridade" readonly dense />
               </div>
-              <div class="col-12 col-md-4">
+              <div class="col-12 col-md-3">
                 <q-select
                   v-model="dadosForm.nivelAcesso"
                   :options="nivelOptions"
