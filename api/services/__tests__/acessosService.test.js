@@ -94,6 +94,69 @@ describe('acessosService', () => {
     })
   })
 
+  describe('addAcesso - PARTE', () => {
+    it('lança 400 quando parteId ausente', async () => {
+      await expect(acessosService.addAcesso('proc-1', { tipo: 'PARTE' }))
+        .rejects.toMatchObject({ code: 400 })
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('lança 404 quando processo não existe no banco', async () => {
+      query.mockResolvedValueOnce({ rows: [] })
+      await expect(
+        acessosService.addAcesso('proc-404', { tipo: 'PARTE', parteId: 'pp-1' }),
+      ).rejects.toMatchObject({ code: 404 })
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('lança 400 quando parte não está no processo', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
+      query.mockResolvedValueOnce({ rows: [] })
+      await expect(
+        acessosService.addAcesso('proc-1', { tipo: 'PARTE', parteId: 'pp-404' }),
+      ).rejects.toMatchObject({ code: 400 })
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    it('adiciona acesso de PARTE quando parte existe', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
+      query.mockResolvedValueOnce({ rows: [{ id: 'pp-1' }] })
+      query.mockResolvedValueOnce({})
+      const result = await acessosService.addAcesso('proc-1', {
+        tipo: 'PARTE',
+        parteId: 'pp-1',
+      })
+      expect(query).toHaveBeenCalledTimes(3)
+      const insertArgs = query.mock.calls[2]
+      expect(insertArgs[0]).toEqual(expect.stringContaining('INSERT INTO processo_acessos'))
+      expect(insertArgs[1]).toEqual(['uuid-123', 'proc-1', 'PARTE', 'pp-1'])
+      expect(result).toEqual({ id: 'uuid-123' })
+    })
+  })
+
+  describe('addAcesso - SETOR', () => {
+    it('insere com sucesso quando processo existe', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
+      query.mockResolvedValueOnce({})
+      const result = await acessosService.addAcesso('proc-1', { tipo: 'SETOR', valor: 'TI' })
+      expect(query).toHaveBeenCalledTimes(2)
+      const insertArgs = query.mock.calls[1]
+      expect(insertArgs[0]).toEqual(expect.stringContaining('INSERT INTO processo_acessos'))
+      expect(insertArgs[1]).toEqual(['uuid-123', 'proc-1', 'SETOR', 'TI'])
+      expect(result).toEqual({ id: 'uuid-123' })
+    })
+  })
+
+  describe('addAcesso - case insensitive', () => {
+    it('normaliza tipo para maiúsculas', async () => {
+      query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
+      query.mockResolvedValueOnce({})
+      await acessosService.addAcesso('proc-1', { tipo: 'usuario', valor: 'john' })
+      const insertArgs = query.mock.calls[1]
+      expect(insertArgs[1][2]).toBe('USUARIO')
+    })
+  })
+
   describe('removeAcesso', () => {
     it('deleta e retorna ok: true quando encontrado', async () => {
       query.mockResolvedValueOnce({ rowCount: 1 })

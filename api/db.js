@@ -43,8 +43,16 @@ async function initDb() {
       prioridade VARCHAR(50) NOT NULL DEFAULT 'Normal',
       setor_atual VARCHAR(100) NOT NULL DEFAULT 'PROTOCOLO',
       atribuido_usuario VARCHAR(100),
+      prazo DATE,
+      pendente BOOLEAN NOT NULL DEFAULT false,
+      pendente_destino_setor VARCHAR(100),
+      pendente_origem_setor VARCHAR(100),
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+  `)
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_processos_assunto ON processos(assunto);
   `)
 
   await pool.query(`
@@ -57,39 +65,12 @@ async function initDb() {
       file_name VARCHAR(255),
       content_base64 TEXT,
       conteudo TEXT,
+      autor VARCHAR(100),
+      assinado_por VARCHAR(100),
+      assinado_em TIMESTAMPTZ,
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
-
-  // Coluna de autor (apenas login); remover coluna obsoleta de nome
-  await pool.query(`
-    ALTER TABLE documentos
-      ADD COLUMN IF NOT EXISTS autor VARCHAR(100);
-  `)
-  // Backfill autor a partir de autor_login (quando existir)
-  try {
-    await pool.query(`
-      UPDATE documentos SET autor = autor_login WHERE autor IS NULL;
-    `)
-  } catch (_e) {
-    // ignora se coluna não existir
-  }
-  await pool.query(`
-    ALTER TABLE documentos
-      DROP COLUMN IF EXISTS autor_login;
-  `)
-
-  // Assinatura de documentos: renomear assinado_por_login -> assinado_por
-  await pool.query(`ALTER TABLE documentos ADD COLUMN IF NOT EXISTS assinado_por VARCHAR(100);`)
-  try {
-    await pool.query(`
-      UPDATE documentos SET assinado_por = assinado_por_login WHERE assinado_por IS NULL;
-    `)
-  } catch (_e) {
-    // ignora se coluna não existir
-  }
-  await pool.query(`ALTER TABLE documentos DROP COLUMN IF EXISTS assinado_por_login;`)
-  await pool.query(`ALTER TABLE documentos ADD COLUMN IF NOT EXISTS assinado_em TIMESTAMPTZ;`)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS processo_documentos (
@@ -108,98 +89,30 @@ async function initDb() {
       content_base64 TEXT NOT NULL,
       status VARCHAR(32) NOT NULL DEFAULT 'aguardando_analise',
       titulo VARCHAR(255),
+      rejeicao_motivo TEXT,
+      rejeitado_em TIMESTAMPTZ,
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_proc ON externo_documentos_temp(processo_id);`)
-  // Campos adicionais para rejeição de anexos externos
-  await pool.query(`ALTER TABLE externo_documentos_temp ADD COLUMN IF NOT EXISTS rejeicao_motivo TEXT;`)
-  await pool.query(`ALTER TABLE externo_documentos_temp ADD COLUMN IF NOT EXISTS rejeitado_em TIMESTAMPTZ;`)
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_proc ON externo_documentos_temp(processo_id);`,
+  )
 
-  // Migração suave: adicionar coluna parte_id em bases antigas, popular e remover coluna antiga
-  await pool.query(`
-    ALTER TABLE externo_documentos_temp
-      ADD COLUMN IF NOT EXISTS parte_id UUID;
-  `)
-  await pool.query(`DROP INDEX IF EXISTS idx_ext_docs_temp_parte;`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_parte_id ON externo_documentos_temp(parte_id);`)
-  // Backfill parte_id a partir de parte_documento apenas se coluna existir
-  try {
-    const { rows: colExists } = await pool.query(
-      `SELECT 1 FROM information_schema.columns
-         WHERE table_schema = $1
-           AND table_name = 'externo_documentos_temp'
-           AND column_name = 'parte_documento'
-         LIMIT 1`,
-      [schema],
-    )
-    if (colExists.length > 0) {
-      await pool.query(`
-        UPDATE externo_documentos_temp edt
-           SET parte_id = cp.id
-          FROM cadastro_partes cp
-         WHERE edt.parte_id IS NULL
-           AND cp.documento = edt.parte_documento;
-      `)
-    }
-  } catch (e) {
-    console.warn('Aviso: backfill de parte_id não aplicado', e.message)
-  }
-  await pool.query(`
-    ALTER TABLE externo_documentos_temp
-      DROP COLUMN IF EXISTS parte_documento;
-  `)
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_parte_id ON externo_documentos_temp(parte_id);`,
+  )
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS processo_partes (
       id UUID PRIMARY KEY,
       processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
-      tipo VARCHAR(50),
-      nome VARCHAR(255) NOT NULL,
-      documento VARCHAR(50),
-      papel VARCHAR(100)
+      papel VARCHAR(100),
+      cadastro_parte_id UUID REFERENCES cadastro_partes(id) ON DELETE SET NULL
     );
   `)
-  // Novo vínculo opcional com cadastro_partes
-  await pool.query(`
-    ALTER TABLE processo_partes
-      ADD COLUMN IF NOT EXISTS cadastro_parte_id UUID REFERENCES cadastro_partes(id) ON DELETE SET NULL;
-  `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_partes_cadastro ON processo_partes(cadastro_parte_id);`)
-
-  // Migração: para registros antigos em processo_partes sem cadastro_parte_id, criar entradas em cadastro_partes
-  try {
-    const { rows: cols } = await pool.query(
-      `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'processo_partes'`,
-      [schema],
-    )
-    const hasNome = cols.some((c) => c.column_name === 'nome')
-    const hasTipo = cols.some((c) => c.column_name === 'tipo')
-    const hasDocumento = cols.some((c) => c.column_name === 'documento')
-    if (hasNome || hasDocumento || hasTipo) {
-      const { rows: antigos } = await pool.query(
-        `SELECT id, tipo, nome, documento FROM processo_partes WHERE cadastro_parte_id IS NULL`,
-      )
-      for (const pp of antigos) {
-        const cadId = require('crypto').randomUUID()
-        await pool.query(
-          `INSERT INTO cadastro_partes (id, tipo, nome, documento) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
-          [cadId, pp.tipo || null, pp.nome || null, pp.documento || null],
-        )
-        await pool.query(
-          `UPDATE processo_partes SET cadastro_parte_id = $1 WHERE id = $2 AND cadastro_parte_id IS NULL`,
-          [cadId, pp.id],
-        )
-      }
-    }
-  } catch (e) {
-    console.warn('Aviso: migração de processo_partes->cadastro_partes falhou ou não necessária', e.message)
-  }
-
-  // Remover colunas duplicadas que agora residem em cadastro_partes
-  await pool.query(`ALTER TABLE processo_partes DROP COLUMN IF EXISTS tipo;`)
-  await pool.query(`ALTER TABLE processo_partes DROP COLUMN IF EXISTS nome;`)
-  await pool.query(`ALTER TABLE processo_partes DROP COLUMN IF EXISTS documento;`)
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_proc_partes_cadastro ON processo_partes(cadastro_parte_id);`,
+  )
 
   // ACL de processos: setores, usuários e partes vinculadas
   await pool.query(`
@@ -211,13 +124,10 @@ async function initDb() {
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
-  // Remover coluna obsoleta caso exista, para alinhar com novo modelo
-  await pool.query(`ALTER TABLE processo_acessos DROP COLUMN IF EXISTS parte_id;`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_acessos_proc ON processo_acessos(processo_id);`)
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_proc_acessos_proc ON processo_acessos(processo_id);`,
+  )
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_acessos_tipo ON processo_acessos(tipo);`)
-
-  // Removido: chaves de acesso externas
-  await pool.query(`DROP TABLE IF EXISTS processo_acesso_chaves;`)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tramites (
@@ -225,44 +135,13 @@ async function initDb() {
       processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
       origem_setor VARCHAR(100),
       destino_setor VARCHAR(100),
+      motivo TEXT,
+      prioridade VARCHAR(50),
+      prazo DATE,
+      origem_usuario VARCHAR(100),
       data TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
-
-  // Adições de colunas para tramites
-  await pool.query(`
-    ALTER TABLE tramites
-      ADD COLUMN IF NOT EXISTS motivo TEXT,
-      ADD COLUMN IF NOT EXISTS prioridade VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS prazo DATE,
-      ADD COLUMN IF NOT EXISTS origem_usuario VARCHAR(100);
-  `)
-
-  // Remover coluna obsoleta destino_usuario
-  await pool.query(`
-    ALTER TABLE tramites
-      DROP COLUMN IF EXISTS destino_usuario;
-  `)
-
-  // Adição de prazo em processos
-  await pool.query(`
-    ALTER TABLE processos
-      ADD COLUMN IF NOT EXISTS prazo DATE;
-  `)
-
-  // Novas colunas para fluxo de Pendências
-  await pool.query(`
-    ALTER TABLE processos
-      ADD COLUMN IF NOT EXISTS pendente BOOLEAN NOT NULL DEFAULT false,
-      ADD COLUMN IF NOT EXISTS pendente_destino_setor VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS pendente_origem_setor VARCHAR(100);
-  `)
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_processos_assunto ON processos(assunto);
-  `)
-
-  // Index on processo_partes(nome) removed due to column drop
 
   // Nova tabela de setores
   await pool.query(`
@@ -326,13 +205,10 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS usuarios (
       login VARCHAR(100) PRIMARY KEY,
       setor VARCHAR(100) NOT NULL REFERENCES setores(sigla),
-      nome VARCHAR(255)
+      nome VARCHAR(255),
+      cargo VARCHAR(255)
     );
   `)
-  // Garantir coluna nome em bases já existentes
-  await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nome VARCHAR(255);`)
-  // Nova coluna: cargo do usuário
-  await pool.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cargo VARCHAR(255);`)
 
   // Garante FK (migração leve para bancos já existentes)
   try {
@@ -360,39 +236,18 @@ async function initDb() {
       endereco_bairro VARCHAR(255),
       endereco_cidade VARCHAR(255),
       endereco_estado VARCHAR(2),
-      endereco_cep VARCHAR(20)
+      endereco_cep VARCHAR(20),
+      chave VARCHAR(100),
+      chave_ativo BOOLEAN NOT NULL DEFAULT TRUE,
+      chave_criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cad_partes_nome ON cadastro_partes(nome);`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cad_partes_doc ON cadastro_partes(documento);`)
-
-  // Novas colunas de chave de acesso por parte (única e reutilizável)
-  await pool.query(`ALTER TABLE cadastro_partes ADD COLUMN IF NOT EXISTS chave VARCHAR(100);`)
   await pool.query(
-    `ALTER TABLE cadastro_partes ADD COLUMN IF NOT EXISTS chave_ativo BOOLEAN NOT NULL DEFAULT TRUE;`
-  )
-  await pool.query(
-    `ALTER TABLE cadastro_partes ADD COLUMN IF NOT EXISTS chave_criado_em TIMESTAMPTZ NOT NULL DEFAULT now();`
-  )
-  await pool.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_cad_partes_chave ON cadastro_partes(chave);`
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_cad_partes_chave ON cadastro_partes(chave);`,
   )
 
-  // Migração leve: gerar chave para registros existentes sem chave
-  try {
-    const { rows: semChave } = await pool.query(
-      `SELECT id FROM cadastro_partes WHERE chave IS NULL`
-    )
-    for (const row of semChave) {
-      const novo = require('crypto').randomUUID()
-      await pool.query(
-        `UPDATE cadastro_partes SET chave = $2, chave_ativo = TRUE WHERE id = $1`,
-        [row.id, novo]
-      )
-    }
-  } catch (e) {
-    console.warn('Aviso: geração de chaves para cadastro_partes não aplicada', e.message)
-  }
   // Tabela de auditoria (logs de ações)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS auditoria (
@@ -412,7 +267,6 @@ async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_data ON auditoria(data);`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_acao ON auditoria(acao);`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_login);`)
-  await pool.query(`ALTER TABLE auditoria DROP COLUMN IF EXISTS usuario_nome;`)
 
   // Seed inicial se tabela estiver vazia
   const { rows: ucount } = await pool.query(`SELECT COUNT(*)::int AS count FROM usuarios`)

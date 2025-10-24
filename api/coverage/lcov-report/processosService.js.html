@@ -30,9 +30,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">85.05% </span>
+                <span class="strong">85.17% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>222/261</span>
+                <span class='fraction'>224/263</span>
             </div>
         
             
@@ -954,7 +954,16 @@
 <a name='L889'></a><a href='#L889'>889</a>
 <a name='L890'></a><a href='#L890'>890</a>
 <a name='L891'></a><a href='#L891'>891</a>
-<a name='L892'></a><a href='#L892'>892</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">2x</span>
+<a name='L892'></a><a href='#L892'>892</a>
+<a name='L893'></a><a href='#L893'>893</a>
+<a name='L894'></a><a href='#L894'>894</a>
+<a name='L895'></a><a href='#L895'>895</a>
+<a name='L896'></a><a href='#L896'>896</a>
+<a name='L897'></a><a href='#L897'>897</a>
+<a name='L898'></a><a href='#L898'>898</a>
+<a name='L899'></a><a href='#L899'>899</a>
+<a name='L900'></a><a href='#L900'>900</a>
+<a name='L901'></a><a href='#L901'>901</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1438,6 +1447,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
@@ -1581,12 +1591,20 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2303,6 +2321,7 @@ async function listProcessos(q = <span class="branch-0 cbranch-no" title="branch
         p.id,
         p.numero,
         p.assunto,
+        p.tipo AS "tipo",
         p.status,
         p.prioridade,
         p.prazo AS "prazo",
@@ -2441,7 +2460,7 @@ async function listTramites(processoId) {
   )
   return rows
 }
-async function consultarPublico(valorRaw, chave) {
+async function consultarPublico(valorRaw, cpf, chave) {
   const valor = decodeURIComponent(String(valorRaw || <span class="branch-1 cbranch-no" title="branch not covered" >'')</span>)
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(valor)
 &nbsp;
@@ -2472,17 +2491,25 @@ async function consultarPublico(valorRaw, chave) {
 &nbsp;
   const nivel = String(processo.nivelAcesso || <span class="branch-1 cbranch-no" title="branch not covered" >'')</span>.toLowerCase()
   if (!(nivel === 'público' || nivel === 'publico')) {
-    if (!chave) {
-      const err = new Error('Processo restrito')
+    // Processo restrito/sigiloso: exigir CPF e chave da parte
+    if (!cpf || !chave) {
+      const err = new Error('Processo restrito: CPF e chave são obrigatórios')
       err.code = 403
       throw err
     }
-    const { rows: keyRows } = await query(
-      `SELECT id FROM processo_acesso_chaves WHERE processo_id = $1 AND chave = $2 AND ativo = TRUE LIMIT 1`,
-      [processo.id, chave],
+    const { rows: cred } = await query(
+      `SELECT 1
+         FROM processo_partes pp
+         JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+        WHERE pp.processo_id = $1
+          AND cp.documento = $2
+          AND cp.chave = $3
+          AND cp.chave_ativo = TRUE
+        LIMIT 1`,
+      [processo.id, cpf, chave],
     )
-    if (keyRows.length === 0) {
-      const err = new Error('Chave inválida ou revogada')
+    if (!cred.length) {
+      const err = new Error('Credenciais inválidas para acesso ao processo')
       err.code = 403
       throw err
     }
@@ -2498,13 +2525,13 @@ async function consultarPublico(valorRaw, chave) {
             d.status,
             d.file_name AS "fileName",
             d.criado_em AS "criadoEm",
-            d.assinado_por_login AS "assinadoPorLogin",
+            d.assinado_por AS "assinadoPorLogin",
             a.nome AS "assinaturaNome",
             a.cargo AS "assinaturaCargo",
             a.setor AS "assinanteSetor"
        FROM processo_documentos pd
        JOIN documentos d ON d.id = pd.documento_id
-       LEFT JOIN usuarios a ON a.login = d.assinado_por_login
+       LEFT JOIN usuarios a ON a.login = d.assinado_por
       WHERE pd.processo_id = $1 AND LOWER(d.status) = 'assinado'
       ORDER BY d.criado_em ASC`,
     [processoId],
@@ -2743,7 +2770,7 @@ module.exports = {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-10-24T02:14:07.106Z
+                at 2025-10-24T22:56:16.216Z
             </div>
         <script src="prettify.js"></script>
         <script>
