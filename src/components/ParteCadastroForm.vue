@@ -1,5 +1,5 @@
 <template>
-  <q-form @submit.prevent="onSubmit" @reset="onReset">
+  <q-form ref="formRef" @submit.prevent="onSubmit" @reset="onReset">
     <div class="row q-col-gutter-sm">
       <div class="col-12 col-md-3">
         <q-select
@@ -17,15 +17,29 @@
           v-model="localForm.nome"
           label="Nome"
           dense
-          :rules="[(v) => !!v || 'Informe o nome']"
+          :rules="[(v) => !!String(v).trim() || 'Informe o nome']"
         />
       </div>
 
       <div class="col-12 col-md-4">
-        <q-input v-model="localForm.documento" label="CPF/CNPJ" dense />
+        <q-input
+          v-model="localForm.documento"
+          label="CPF/CNPJ"
+          dense
+          :rules="[(v) => !!String(v).trim() || 'Informe o documento']"
+        />
       </div>
       <div class="col-12 col-md-4">
-        <q-input v-model="localForm.email" label="Email" type="email" dense />
+        <q-input
+          v-model="localForm.email"
+          label="Email"
+          type="email"
+          dense
+          :rules="[
+            (v) => !!String(v).trim() || 'Informe o email',
+            (v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v).trim()) || 'Email inválido',
+          ]"
+        />
       </div>
       <div class="col-12 col-md-4">
         <q-input v-model="localForm.telefone" label="Telefone" dense />
@@ -140,6 +154,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'submit', 'reset'])
 
 const localForm = ref({ ...props.modelValue })
+const formRef = ref(null)
 
 watch(
   () => props.modelValue,
@@ -180,8 +195,10 @@ const tipoOptionsResolved = computed(() => props.tipoOptions || [])
 const ufOptionsResolved = computed(() => props.ufOptions || [])
 const submitLabelResolved = computed(() => props.submitLabel || 'Salvar')
 
-function onSubmit() {
-  if (!localForm.value?.nome) return
+async function onSubmit() {
+  // Valida campos obrigatórios via QForm
+  const ok = await formRef.value?.validate?.()
+  if (!ok) return
   emit('submit', { ...localForm.value })
 }
 

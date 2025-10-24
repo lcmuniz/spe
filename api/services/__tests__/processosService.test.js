@@ -955,21 +955,20 @@ describe('consultarPublico', () => {
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('retorna 403 quando chave inválida ou revogada', async () => {
+  it('retorna 403 quando CPF/chave inválidos', async () => {
     query.mockResolvedValueOnce({
       rows: [
         { id: 'p1', numero: 'N1', assunto: 'A', nivelAcesso: 'Restrito', status: 'Em instrução' },
       ],
     })
     query.mockResolvedValueOnce({ rows: [] })
-    await expect(processosService.consultarPublico('N1', 'abc123')).rejects.toMatchObject({
+    await expect(processosService.consultarPublico('N1', '123', 'abc123')).rejects.toMatchObject({
       code: 403,
     })
     expect(query).toHaveBeenCalledTimes(2)
-    expect(query.mock.calls[1]).toEqual([
-      expect.stringContaining('FROM processo_acesso_chaves'),
-      ['p1', 'abc123'],
-    ])
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('FROM processo_partes'))
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('JOIN cadastro_partes'))
+    expect(query.mock.calls[1][1]).toEqual(['p1', '123', 'abc123'])
   })
 
   it('retorna dados públicos quando restrito com chave válida', async () => {
@@ -1018,14 +1017,13 @@ describe('consultarPublico', () => {
     ]
     query.mockResolvedValueOnce({ rows: partesRows })
 
-    const result = await processosService.consultarPublico('N1', 'abc123')
+    const result = await processosService.consultarPublico('N1', '123', 'abc123')
 
     expect(query).toHaveBeenCalledTimes(5)
-    // valida consulta da chave
-    expect(query.mock.calls[1]).toEqual([
-      expect.stringContaining('FROM processo_acesso_chaves'),
-      ['p1', 'abc123'],
-    ])
+    // valida consulta da credencial
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('FROM processo_partes'))
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('JOIN cadastro_partes'))
+    expect(query.mock.calls[1][1]).toEqual(['p1', '123', 'abc123'])
     expect(result).toEqual({
       capaPublica: { id: 'p1', numero: 'N1', assunto: 'A', status: 'Em instrução' },
       andamentosPublicos: tramitesRows,

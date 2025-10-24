@@ -389,7 +389,7 @@ async function deletarRascunho(id, { usuarioLogin }) {
   return { ok: true, statusAnterior: statusAtual, autorLogin }
 }
 
-async function gerarPdfPublico(id, chaveRaw) {
+async function gerarPdfPublico(id, cpf, chaveRaw) {
   const { rows } = await query(
     `SELECT d.id, d.titulo, d.modo, d.status, d.file_name AS "fileName", d.content_base64 AS "contentBase64", d.conteudo,
             p.id AS "processoId", p.nivel_acesso AS "nivelAcesso"
@@ -413,17 +413,24 @@ async function gerarPdfPublico(id, chaveRaw) {
   }
   if (String(d.nivelAcesso || '') !== 'Público') {
     const chave = String(chaveRaw || '')
-    if (!chave) {
-      const err = new Error('Documento pertence a processo não público')
+    if (!cpf || !chave) {
+      const err = new Error('Documento pertence a processo não público: CPF e chave são obrigatórios')
       err.code = 403
       throw err
     }
-    const { rows: keyRows } = await query(
-      `SELECT id FROM processo_acesso_chaves WHERE processo_id = $1 AND chave = $2 AND ativo = TRUE LIMIT 1`,
-      [d.processoId, chave],
+    const { rows: cred } = await query(
+      `SELECT 1
+         FROM processo_partes pp
+         JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+        WHERE pp.processo_id = $1
+          AND cp.documento = $2
+          AND cp.chave = $3
+          AND cp.chave_ativo = TRUE
+        LIMIT 1`,
+      [d.processoId, cpf, chave],
     )
-    if (keyRows.length === 0) {
-      const err = new Error('Chave inválida ou revogada')
+    if (!cred.length) {
+      const err = new Error('Credenciais inválidas para acesso ao documento')
       err.code = 403
       throw err
     }
@@ -433,92 +440,63 @@ async function gerarPdfPublico(id, chaveRaw) {
   const titulo = d.titulo || 'documento'
   const safeTitle = titulo.replace(/[^a-zA-Z0-9_-]+/g, '_')
   let pdfBase64 = null
-  let outFileName = `${safeTitle}.pdf`
-
-  if (modo === 'upload') {
-    const fileName = (d.fileName || d.file_name || '')
-    const ext = String(fileName.split('.').pop() || '').toLowerCase()
-    const base64 = (d.contentBase64 || d.content_base64 || '')
-    if (!base64) {
-      const err = new Error('Conteúdo indisponível')
+  if (modo === 'editor') {
+    const rawText = d.conteudo || ''
+    const looksHtml = /<\/?[a-zA-Z]/.test(rawText)
+    let bodyHtml
+    if (!rawText.trim()) {
+      bodyHtml = `<div style="white-space:pre-wrap"></div>`
+    } else if (looksHtml) {
+      bodyHtml = rawText
+    } else {
+      const text = rawText.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+      bodyHtml = `<pre>${text}</pre>`
+    }
+    const html = `<html><head><meta charset="utf-8"><title>${safeTitle}</title></head><body>${bodyHtml}</body></html>`
+    const puppeteer = require('puppeteer')
+    const browser = await puppeteer.launch()
+    const page = await browser.newPage()
+    await page.setContent(html)
+    const pdfBuffer = await page.pdf()
+    await browser.close()
+    pdfBase64 = Buffer.from(pdfBuffer).toString('base64')
+  } else if (modo === 'upload') {
+    const fileName = String(d.fileName || d.file_name || '')
+    const base64Raw = (d.contentBase64 != null ? d.contentBase64 : (d.content_base64 != null ? d.content_base64 : ''))
+    if (!base64Raw) {
+      const err = new Error('Upload sem conteúdo para geração de PDF')
       err.code = 409
       throw err
     }
+    const ext = (fileName.split('.').pop() || '').toLowerCase()
+    const allowed = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
+    if (!allowed.includes(ext)) {
+      const err = new Error('Formato de upload não suportado para PDF público')
+      err.code = 415
+      throw err
+    }
+    let base64 = base64Raw
     if (ext === 'pdf') {
-      const looksLikeCsvBytes = /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(base64)
-      if (looksLikeCsvBytes) {
-        const bytes = base64.split(',').map((n) => parseInt(n.trim(), 10))
-        pdfBase64 = Buffer.from(bytes).toString('base64')
-      } else {
-        pdfBase64 = base64
-      }
-      outFileName = fileName || outFileName
-    } else {
-      const mime =
-        ext === 'png'
-          ? 'image/png'
-          : ext === 'jpg' || ext === 'jpeg'
-            ? 'image/jpeg'
-            : ext === 'gif'
-              ? 'image/gif'
-              : ext === 'webp'
-                ? 'image/webp'
-                : ext === 'svg'
-                  ? 'image/svg+xml'
-                  : null
-      if (!mime) {
-        const err = new Error('Formato de upload não suportado para conversão em PDF')
-        err.code = 415
-        throw err
-      }
-      const puppeteer = require('puppeteer')
-      const browser = await puppeteer.launch()
-      try {
-        const page = await browser.newPage()
-        const html = `<!doctype html><html><head><meta charset="utf-8">
-          <style>html,body{margin:0;padding:0;height:100%}body{display:flex;align-items:center;justify-content:center}
-          img{max-width:100%;max-height:100%;object-fit:contain}</style></head>
-          <body><img src="data:${mime};base64,${base64}" /></body></html>`
-        await page.setContent(html, { waitUntil: 'networkidle0' })
-        const pdfBinary = await page.pdf({ format: 'A4', printBackground: true })
-        pdfBase64 = Buffer.from(pdfBinary).toString('base64')
-      } finally {
-        await browser.close().catch(() => {})
+      // Se vier CSV de bytes, converte para base64 real
+      if (/^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(base64Raw)) {
+        const bytes = base64Raw.split(',').map((s) => parseInt(s.trim(), 10))
+        base64 = Buffer.from(bytes).toString('base64')
       }
     }
-  } else if (modo === 'editor') {
-    const conteudo = d.conteudo || ''
-    const isHtmlLike = /<\w+/.test(conteudo)
-    const bodyContent = isHtmlLike
-      ? conteudo
-      : `<div style="white-space:pre-wrap;font-family:Arial, sans-serif;font-size:12pt;line-height:1.4">${conteudo.replace(
-          /[&<>]/g,
-          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c],
-        )}</div>`
-    const puppeteer = require('puppeteer')
-    const browser = await puppeteer.launch()
-    try {
-      const page = await browser.newPage()
-      const html = `<!doctype html><html><head><meta charset="utf-8">
-        <style>body{margin:1cm;font-family:Arial, sans-serif;font-size:12pt;line-height:1.4}</style></head>
-        <body>${bodyContent}</body></html>`
-      await page.setContent(html, { waitUntil: 'networkidle0' })
-      const pdfBinary = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
-      })
-      pdfBase64 = Buffer.from(pdfBinary).toString('base64')
-    } finally {
-      await browser.close().catch(() => {})
-    }
+    pdfBase64 = base64
   } else {
-    const err = new Error('Modo de documento não suportado')
+    const err = new Error('Modo de documento não suportado para PDF público')
     err.code = 415
     throw err
   }
 
-  return { fileName: outFileName, contentBase64: pdfBase64 }
+  // Nome do arquivo: se upload PDF, mantém o nome original; caso contrário, usa título
+  const origName = String(d.fileName || d.file_name || '')
+  const resultFileName = (modo === 'upload' && origName.toLowerCase().endsWith('.pdf'))
+    ? origName
+    : `${safeTitle}.pdf`
+
+  return { fileName: resultFileName, contentBase64: pdfBase64 }
 }
 
 async function seedByProcesso(processoId, { autorLogin } = {}) {

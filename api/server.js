@@ -5,7 +5,8 @@ const cors = require('cors')
 const bodyParser = require('body-parser')
 const { initDb } = require('./db')
 const processosService = require('./services/processosService')
-const chavesService = require('./services/chavesService')
+const externoService = require('./services/externoService')
+
 const { auditLog } = require('./services/auditoriaService')
 const acessosService = require('./services/acessosService')
 const catalogService = require('./services/catalogService')
@@ -110,74 +111,11 @@ app.delete('/api/processos/:id/acessos/:acessoId', async (req, res) => {
   }
 })
 
-// GET /api/processos/:id/chaves
-app.get('/api/processos/:id/chaves', async (req, res) => {
-  try {
-    const { id } = req.params
-    const chaves = await chavesService.listChaves(id)
-    res.json(chaves)
-  } catch (e) {
-    console.error('Erro em GET /api/processos/:id/chaves', e)
-    res.status(500).json({ error: 'Erro ao listar chaves do processo' })
-  }
-})
 
-// POST /api/processos/:id/chaves
-app.post('/api/processos/:id/chaves', async (req, res) => {
-  try {
-    const { id } = req.params
-    const { parteId, executadoPor } = req.body
 
-    let created
-    try {
-      created = await chavesService.createChave({ processoId: id, parteId })
-    } catch (err) {
-      const status = err.code === 400 ? 400 : err.code === 404 ? 404 : 500
-      return res.status(status).json({ error: err.message || 'Erro ao criar chave de acesso' })
-    }
 
-    await auditLog(req, {
-      acao: 'processo.chave_create',
-      usuarioLogin: executadoPor || req.body.usuario || null,
-      entidade: 'processo',
-      entidadeId: id,
-      detalhes: { chaveId: created.id, parteId },
-    })
 
-    res.status(201).json({ ok: true, id: created.id, chave: created.chave })
-  } catch (e) {
-    console.error('Erro em POST /api/processos/:id/chaves', e)
-    res.status(500).json({ error: 'Erro ao criar chave de acesso' })
-  }
-})
 
-// DELETE /api/processos/:id/chaves/:chaveId
-app.delete('/api/processos/:id/chaves/:chaveId', async (req, res) => {
-  try {
-    const { id, chaveId } = req.params
-    const { executadoPor } = req.body || {}
-
-    try {
-      await chavesService.revokeChave({ processoId: id, chaveId })
-    } catch (err) {
-      const status = err.code === 404 ? 404 : 500
-      return res.status(status).json({ error: err.message || 'Erro ao revogar chave de acesso' })
-    }
-
-    await auditLog(req, {
-      acao: 'processo.chave_revoke',
-      usuarioLogin: executadoPor || req.body?.usuario || null,
-      entidade: 'processo',
-      entidadeId: id,
-      detalhes: { chaveId },
-    })
-
-    res.json({ ok: true })
-  } catch (e) {
-    console.error('Erro em DELETE /api/processos/:id/chaves/:chaveId', e)
-    res.status(500).json({ error: 'Erro ao revogar chave de acesso' })
-  }
-})
 
 // Helpers de filtro
 // GET /api/setores
@@ -843,8 +781,9 @@ app.get('/api/public/consultas/:valor', async (req, res) => {
   try {
     const raw = req.params.valor || ''
     const valor = decodeURIComponent(raw)
+    const cpf = String(req.query.cpf || '')
     const chave = String(req.query.chave || '')
-    const result = await processosService.consultarPublico(valor, chave)
+    const result = await processosService.consultarPublico(valor, cpf, chave)
     res.json(result)
   } catch (e) {
     console.error('Erro em GET /api/public/consultas/:valor', e)
@@ -858,8 +797,9 @@ app.get('/api/public/consultas/:valor', async (req, res) => {
 app.get('/api/public/documentos/:id/pdf', async (req, res) => {
   try {
     const { id } = req.params
+    const cpf = String(req.query.cpf || '')
     const chave = String(req.query.chave || '')
-    const result = await documentosService.gerarPdfPublico(id, chave)
+    const result = await documentosService.gerarPdfPublico(id, cpf, chave)
     res.json(result)
   } catch (e) {
     console.error('Erro em GET /api/public/documentos/:id/pdf', e)
@@ -868,6 +808,45 @@ app.get('/api/public/documentos/:id/pdf', async (req, res) => {
     res.status(status).json({ error: msg })
   }
 })
+app.get('/api/public/externo/processos', async (req, res) => {
+  try {
+    const cpf = String(req.query.cpf || '')
+    const chave = String(req.query.chave || '')
+    const rows = await externoService.listProcessosPorParteCredencial(cpf, chave)
+    res.json(rows)
+  } catch (err) {
+    const code = err.code || 500
+    res.status(code).json({ error: err.message || 'Erro interno' })
+  }
+})
+// Documentos temporários externos (listar e anexar)
+app.get('/api/public/externo/processos/:numero/documentos', async (req, res) => {
+  try {
+    const numero = decodeURIComponent(req.params.numero || '')
+    const cpf = String(req.query.cpf || '')
+    const chave = String(req.query.chave || '')
+    const rows = await externoService.listarDocumentosExternosTemporarios(numero, cpf, chave)
+    res.json(rows)
+  } catch (err) {
+    const code = err.code || 500
+    res.status(code).json({ error: err.message || 'Erro interno' })
+  }
+})
+
+app.post('/api/public/externo/processos/:numero/documentos', async (req, res) => {
+  try {
+    const numero = decodeURIComponent(req.params.numero || '')
+    const cpf = String(req.query.cpf || '')
+    const chave = String(req.query.chave || '')
+    const { fileName, contentBase64, titulo } = req.body
+    const doc = await externoService.anexarDocumentoExternoTemporario(numero, cpf, chave, fileName, contentBase64, titulo)
+    res.json(doc)
+  } catch (err) {
+    const code = err.code || 500
+    res.status(code).json({ error: err.message || 'Erro interno' })
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`SPE API mock rodando em http://localhost:${PORT}`)
 })

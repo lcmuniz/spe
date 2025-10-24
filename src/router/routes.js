@@ -22,6 +22,18 @@ const routes = [
     ],
   },
 
+  // Área do usuário externo
+  {
+    path: '/externo',
+    component: () => import('layouts/BlankLayout.vue'),
+    children: [
+      { path: '', redirect: '/externo/login' },
+      { path: 'login', component: () => import('pages/ExternoLoginPage.vue') },
+      { path: 'processos', component: () => import('pages/ExternoProcessosPage.vue') },
+      { path: 'processo/:numero/documentos', component: () => import('pages/ExternoDocumentosPage.vue') },
+    ],
+  },
+
   // 404
   {
     path: '/:catchAll(.*)*',

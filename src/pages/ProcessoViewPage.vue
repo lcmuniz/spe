@@ -669,7 +669,7 @@
             </q-card-section>
             <q-card-section>
               <div class="row q-col-gutter-md">
-                <div class="col-12 col-md-6">
+                <div class="col-12">
                   <div class="q-mt-md">
                     <div class="text-subtitle2 q-mb-sm">Adicionar acesso</div>
                     <div class="row q-col-gutter-sm">
@@ -679,6 +679,7 @@
                           :options="[
                             { label: 'Setor', value: 'SETOR' },
                             { label: 'Usuário', value: 'USUARIO' },
+                            { label: 'Parte', value: 'PARTE' },
                           ]"
                           label="Tipo"
                           dense
@@ -687,11 +688,37 @@
                         />
                       </div>
                       <div class="col-12 col-md-8">
-                        <q-input
+                        <q-select
+                          v-if="aclForm.tipo === 'SETOR'"
                           v-model="aclForm.valor"
-                          :label="aclForm.tipo === 'SETOR' ? 'Sigla do setor' : 'Login do usuário'"
-                          :placeholder="aclForm.tipo === 'SETOR' ? 'Ex.: ADM' : 'Ex.: joao.silva'"
+                          :options="setorOptions"
+                          label="Setor"
                           dense
+                          emit-value
+                          map-options
+                        />
+                        <q-select
+                          v-else-if="aclForm.tipo === 'USUARIO'"
+                          v-model="aclForm.valor"
+                          :options="usuariosAcessoOptions"
+                          label="Usuário"
+                          dense
+                          emit-value
+                          map-options
+                        />
+                        <q-select
+                          v-else
+                          v-model="aclForm.parteId"
+                          :options="
+                            (partes || []).map((p) => ({
+                              label: `${p.nome} (${p.documento || '—'})`,
+                              value: p.id,
+                            }))
+                          "
+                          label="Parte"
+                          dense
+                          emit-value
+                          map-options
                         />
                       </div>
                     </div>
@@ -700,7 +727,7 @@
                         label="Adicionar"
                         color="primary"
                         @click="addAcessoSubmit"
-                        :disable="!aclForm.valor"
+                        :disable="aclForm.tipo === 'PARTE' ? !aclForm.parteId : !aclForm.valor"
                       />
                     </div>
                   </div>
@@ -728,59 +755,6 @@
                     <div v-if="!acessos.length" class="text-grey q-pa-sm">Nenhum acesso</div>
                   </q-list>
                 </div>
-                <div class="col-12 col-md-6">
-                  <div class="q-mt-md">
-                    <div class="text-subtitle2 q-mb-sm">Criar nova chave</div>
-                    <div class="row q-col-gutter-sm">
-                      <div class="col-12">
-                        <q-select
-                          v-model="chaveParteId"
-                          :options="
-                            (partes || []).map((p) => ({
-                              label: `${p.nome} (${p.documento || '—'})`,
-                              value: p.id,
-                            }))
-                          "
-                          label="Parte"
-                          dense
-                          emit-value
-                          map-options
-                        />
-                      </div>
-                    </div>
-                    <div class="row justify-end q-mt-sm">
-                      <q-btn label="Criar chave" color="primary" @click="criarChaveSubmit" />
-                    </div>
-                  </div>
-                  <div class="text-subtitle2 q-mb-sm">Chaves de acesso</div>
-                  <q-list bordered dense>
-                    <q-item v-for="c in chaves" :key="c.id">
-                      <q-item-section>
-                        <q-item-label>{{ c.chave }}</q-item-label>
-                        <q-item-label caption>
-                          Parte:
-                          {{
-                            (partes || []).find((p) => String(p.id) === String(c.parteId))?.nome ||
-                            '—'
-                          }}
-                        </q-item-label>
-                        <q-item-label caption>Ativo: {{ c.ativo ? 'Sim' : 'Não' }}</q-item-label>
-                      </q-item-section>
-                      <q-item-section side>
-                        <q-btn
-                          flat
-                          round
-                          dense
-                          icon="block"
-                          color="warning"
-                          @click="revogarChaveRow(c)"
-                          :disable="!c.ativo"
-                        />
-                      </q-item-section>
-                    </q-item>
-                    <div v-if="!chaves.length" class="text-grey q-pa-sm">Nenhuma chave</div>
-                  </q-list>
-                </div>
               </div>
             </q-card-section>
             <q-card-actions align="right">
@@ -794,7 +768,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, inject } from 'vue'
+import { ref, onMounted, computed, inject, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { marked } from 'marked'
@@ -821,9 +795,6 @@ import {
   listarAcessos,
   adicionarAcesso,
   removerAcesso,
-  listarChaves,
-  criarChave,
-  revogarChave,
   arquivarProcesso,
 } from 'src/services/processosService'
 import { listarSetores } from 'src/services/catalogService'
@@ -1840,44 +1811,81 @@ async function criarDocSubmit() {
 // ACL state and actions
 const aclDialogOpen = ref(false)
 const acessos = ref([])
-const chaves = ref([])
 const aclLoading = ref(false)
-const aclForm = ref({ tipo: 'SETOR', valor: '', parteId: null })
-const chaveParteId = ref(null)
+const aclForm = ref({ tipo: 'SETOR', valor: null, parteId: null })
+const usuariosAcessoOptions = ref([])
 
 async function openAclDialog() {
+  await loadSetoresOptions()
+  await loadUsuariosOptionsAll()
   await loadAcl()
   aclDialogOpen.value = true
 }
+
+async function loadUsuariosOptionsAll() {
+  try {
+    const data = await listarUsuarios({})
+    usuariosAcessoOptions.value = (data || []).map((u) => ({
+      label: `${u.nome} (${u.username})`,
+      value: u.username,
+    }))
+  } catch (e) {
+    console.error(e)
+    usuariosAcessoOptions.value = []
+  }
+}
+
+watch(
+  () => aclForm.value.tipo,
+  async (novo) => {
+    if (novo === 'SETOR') {
+      await loadSetoresOptions()
+    } else if (novo === 'USUARIO') {
+      await loadUsuariosOptionsAll()
+    }
+  },
+)
 
 async function loadAcl() {
   aclLoading.value = true
   try {
     const { id } = route.params
     acessos.value = await listarAcessos(id)
-    chaves.value = await listarChaves(id)
   } catch (e) {
     console.error(e)
     acessos.value = []
-    chaves.value = []
   } finally {
     aclLoading.value = false
   }
 }
 
 async function addAcessoSubmit() {
+  const tipo = aclForm.value.tipo
+  if (!tipo) return
+
+  const payload = {
+    tipo,
+    valor: tipo === 'PARTE' ? undefined : aclForm.value.valor,
+    parteId: tipo === 'PARTE' ? aclForm.value.parteId : undefined,
+    executadoPor: getUsuarioLogin(),
+  }
+
+  if (tipo === 'PARTE') {
+    if (!payload.parteId) {
+      $q.notify({ type: 'warning', message: 'Selecione a parte.' })
+      return
+    }
+  } else if (!payload.valor) {
+    $q.notify({ type: 'warning', message: 'Preencha o valor.' })
+    return
+  }
+
   try {
     const { id } = route.params
-    const tipo = aclForm.value.tipo
-    const payload = {
-      tipo,
-      valor: (aclForm.value.valor || '').trim(),
-      executadoPor: getUsuarioLogin(),
-    }
     await adicionarAcesso(id, payload)
     $q.notify({ type: 'positive', message: 'Acesso adicionado' })
-    aclForm.value = { tipo: 'SETOR', valor: '', parteId: null }
     await loadAcl()
+    aclForm.value = { tipo: 'SETOR', valor: null, parteId: null }
   } catch (e) {
     console.error(e)
     $q.notify({
@@ -1911,49 +1919,6 @@ async function removerAcessoRow(row) {
   } catch (e) {
     console.error(e)
     $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao remover acesso' })
-  }
-}
-
-async function criarChaveSubmit() {
-  try {
-    const { id } = route.params
-    if (!chaveParteId.value) {
-      $q.notify({ type: 'warning', message: 'Selecione a parte' })
-      return
-    }
-    const resp = await criarChave(id, {
-      parteId: chaveParteId.value,
-      executadoPor: getUsuarioLogin(),
-    })
-    const chave = resp?.chave
-    await loadAcl()
-    if (chave) {
-      $q.dialog({
-        title: 'Chave de acesso criada',
-        message: `Compartilhe com a parte:\n${chave}`,
-        ok: { label: 'Copiar', color: 'primary' },
-        cancel: true,
-      }).onOk(() => {
-        navigator.clipboard?.writeText(chave).catch(() => {})
-      })
-    } else {
-      $q.notify({ type: 'positive', message: 'Chave criada' })
-    }
-  } catch (e) {
-    console.error(e)
-    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao criar chave' })
-  }
-}
-
-async function revogarChaveRow(row) {
-  try {
-    const { id } = route.params
-    await revogarChave(id, row.id, { executadoPor: getUsuarioLogin() })
-    $q.notify({ type: 'positive', message: 'Chave revogada' })
-    await loadAcl()
-  } catch (e) {
-    console.error(e)
-    $q.notify({ type: 'negative', message: e?.response?.data?.error || 'Falha ao revogar chave' })
   }
 }
 </script>

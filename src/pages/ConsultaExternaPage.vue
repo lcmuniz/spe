@@ -4,28 +4,63 @@
       <q-card flat bordered>
         <q-card-section>
           <div class="text-h6">Consulta Externa</div>
-          <div class="text-subtitle2">Informe o número do processo ou a chave</div>
+          <div class="text-subtitle2">
+            Informe o número do processo. Se for restrito, use CPF e chave.
+          </div>
         </q-card-section>
         <q-separator />
         <q-card-section>
+          <div class="q-mb-sm">
+            <q-btn-toggle
+              v-model="modo"
+              toggle-color="primary"
+              :options="[
+                { label: 'Processos públicos', value: 'PUBLICO' },
+                { label: 'Processos restritos', value: 'RESTRITO' },
+              ]"
+            />
+          </div>
           <div class="row items-center q-col-gutter-sm">
-            <div class="col-12 col-md-8">
+            <div class="col-12 col-md-6" v-show="modo === 'PUBLICO'">
               <q-input
                 v-model="termo"
-                label="Número do processo ou Chave"
+                label="Número do processo"
                 dense
                 clearable
                 @keyup.enter="consultar"
               />
             </div>
-            <div class="col-12 col-md-4">
+            <template v-if="modo === 'RESTRITO'">
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model="termo"
+                  label="Número do processo"
+                  dense
+                  clearable
+                  @keyup.enter="consultar"
+                />
+              </div>
+              <div class="col-12 col-md-4">
+                <q-input v-model="cpf" label="CPF" dense clearable @keyup.enter="consultar" />
+              </div>
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model="chave"
+                  label="Chave de acesso"
+                  dense
+                  clearable
+                  @keyup.enter="consultar"
+                />
+              </div>
+            </template>
+            <div class="col-12">
               <q-btn
                 color="primary"
                 label="Consultar"
                 :loading="loading"
                 @click="consultar"
-                :disable="!termo"
-                class="full-width"
+                :disable="botaoDesabilitado"
+                class="full-width q-mt-sm"
               />
             </div>
           </div>
@@ -42,7 +77,10 @@
               <template v-slot:avatar>
                 <q-icon name="lock" color="orange-9" />
               </template>
-              Processo restrito. Autentique-se se for parte para visualizar.
+              <div v-if="modo == 'PUBLICO'">Não encontrado.</div>
+              <div v-if="modo == 'RESTRITO'">
+                Informe CPF e chave válidos da parte para visualizar.
+              </div>
             </q-banner>
           </div>
           <div v-if="estado === 'erro'" class="q-mt-md">
@@ -169,12 +207,19 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { useExternoStore } from 'src/stores/externo-store'
 import { useQuasar } from 'quasar'
 import { api } from 'boot/axios'
 
 const $q = useQuasar()
+const route = useRoute()
+const externo = useExternoStore()
+const modo = ref('PUBLICO')
 const termo = ref('')
+const cpf = ref('')
+const chave = ref('')
 const loading = ref(false)
 const estado = ref('') // '', 'nao_encontrado', 'restrito', 'erro'
 const resultado = ref(null)
@@ -207,6 +252,14 @@ const columnsPartesPublicas = [
   { name: 'papel', label: 'Papel', field: 'papel', align: 'left' },
 ]
 
+const botaoDesabilitado = computed(() => {
+  const tOk = String(termo.value || '').trim() !== ''
+  if (modo.value === 'PUBLICO') return !tOk
+  const cpfOk = String(cpf.value || '').trim() !== ''
+  const chaveOk = String(chave.value || '').trim() !== ''
+  return !(tOk && cpfOk && chaveOk)
+})
+
 function formatDate(value) {
   if (!value) return ''
   const d = new Date(value)
@@ -216,73 +269,31 @@ function formatDate(value) {
 async function consultar() {
   estado.value = ''
   resultado.value = null
+  if (botaoDesabilitado.value) return
   loading.value = true
   try {
     const t = String(termo.value || '').trim()
-    if (!t) {
-      loading.value = false
-      return
-    }
 
-    // Tenta endpoint público agregado; se não existir, faz fallback
     let resp
-    try {
+    if (modo.value === 'PUBLICO') {
+      // Consulta pública por número exato
       resp = await api.get(`/public/consultas/${encodeURIComponent(t)}`)
       resultado.value = resp.data
-    } catch (_e) {
-      // Fallback: buscar processo público por número e montar resultado manualmente
-      try {
-        const list = await api.get('/processos', {
-          params: { numero: t, nivelAcesso: 'Público', pageSize: 1, page: 1 },
-        })
-        const item = list.data?.items?.[0]
-        if (!item) {
-          estado.value = 'nao_encontrado'
-          return
-        }
-        // Carregar andamentos e documentos assinados
-        const [tram, docs] = await Promise.all([
-          api.get(`/processos/${item.id}/tramites`),
-          api.get(`/processos/${item.id}/documentos`),
-        ])
-        resultado.value = {
-          capaPublica: {
-            id: item.id,
-            numero: item.numero,
-            assunto: item.assunto,
-            status: item.status,
-          },
-          andamentosPublicos: tram.data || [],
-          documentosPublicos: (docs.data || []).filter(
-            (d) => String(d.status || '').toLowerCase() === 'assinado',
-          ),
-          partesPublicas: [],
-        }
-        try {
-          const proc = await api.get(`/processos/${item.id}`)
-          const partes = (proc.data?.partes || []).map((p) => ({
-            id: p.id,
-            tipo: p.tipo,
-            nome: p.nome,
-            papel: p.papel,
-          }))
-          resultado.value.partesPublicas = partes
-        } catch (_e2) {
-          // mantém partesPublicas como lista vazia no fallback, se falhar
-          resultado.value.partesPublicas = []
-        }
-      } catch (errFallback) {
-        const status = errFallback?.response?.status
-        if (status === 404) estado.value = 'nao_encontrado'
-        else if (status === 403) estado.value = 'restrito'
-        else estado.value = 'erro'
+    } else {
+      // Consulta restrita: requer número + CPF + chave
+      const params = {
+        cpf: String(cpf.value || '').trim(),
+        chave: String(chave.value || '').trim(),
       }
+      resp = await api.get(`/public/consultas/${encodeURIComponent(t)}`, { params })
+      resultado.value = resp.data
     }
   } catch (err) {
     const status = err?.response?.status
     if (status === 404) estado.value = 'nao_encontrado'
-    else if (status === 403) estado.value = 'restrito'
-    else estado.value = 'erro'
+    else if (status === 403) {
+      estado.value = 'restrito'
+    } else estado.value = 'erro'
   } finally {
     loading.value = false
   }
@@ -305,14 +316,18 @@ async function baixarDocumento(docResumo) {
     }
 
     // Editor: baixar PDF via endpoint público
-    const pdf = await api.get(`/public/documentos/${docResumo.id}/pdf`)
+    const params = {
+      cpf: String(cpf.value || '').trim(),
+      chave: String(chave.value || '').trim(),
+    }
+    const pdf = await api.get(`/public/documentos/${docResumo.id}/pdf`, { params })
     const base64 = pdf.data?.contentBase64 || ''
     const fileName = pdf.data?.fileName || `${(d.titulo || 'documento').replace(/\s+/g, '_')}.pdf`
     if (!base64) throw new Error('PDF indisponível')
     const href = `data:application/pdf;base64,${base64}`
     baixarViaLink(href, fileName, true)
   } catch (e) {
-    console.error('Falha ao baixar documento', e)
+    console.error(e)
     $q.notify({ type: 'negative', message: 'Falha ao baixar documento' })
   } finally {
     downloadingMap.value[docResumo.id] = false
@@ -331,4 +346,21 @@ function baixarViaLink(href, fileName, revokeUrl = false) {
     setTimeout(() => URL.revokeObjectURL(href), 500)
   }
 }
+onMounted(() => {
+  try {
+    externo.initialize()
+    if (externo?.cpf) cpf.value = externo.cpf
+    if (externo?.chave) chave.value = externo.chave
+  } catch (e) {
+    console.error(e)
+  }
+  const q = route?.query || {}
+  const m = String(q.modo || '').toUpperCase()
+  if (m === 'PUBLICO' || m === 'RESTRITO') modo.value = m
+  if (q.numero) termo.value = String(q.numero)
+  const podeAuto =
+    (modo.value === 'RESTRITO' && termo.value && cpf.value && chave.value) ||
+    (modo.value === 'PUBLICO' && termo.value)
+  if (podeAuto) consultar()
+})
 </script>

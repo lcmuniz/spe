@@ -53,13 +53,16 @@ async function obterParteCadastro(id) {
 async function criarParteCadastro(payload = {}) {
   const data = sanitize(payload)
   const id = data.id || randomUUID()
+  const chave = randomUUID()
   const sql = `
     INSERT INTO ${TABLE} (
       id, tipo, nome, documento, email, telefone,
       endereco_logradouro, endereco_numero, endereco_complemento,
-      endereco_bairro, endereco_cidade, endereco_estado, endereco_cep
+      endereco_bairro, endereco_cidade, endereco_estado, endereco_cep,
+      chave
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+      $14
     ) RETURNING *
   `
   const params = [
@@ -76,6 +79,7 @@ async function criarParteCadastro(payload = {}) {
     data.endereco_cidade,
     data.endereco_estado,
     data.endereco_cep,
+    chave,
   ]
   const { rows } = await query(sql, params)
   return rows?.[0] || null

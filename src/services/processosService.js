@@ -105,3 +105,9 @@ export async function revogarChave(id, chaveId, { executadoPor } = {}) {
   })
   return data
 }
+
+export async function listarMeusProcessosPorCpfChave({ cpf, chave }) {
+  const params = { cpf, chave }
+  const { data } = await api.get('/public/externo/processos', { params })
+  return Array.isArray(data) ? data : data?.items || data || []
+}

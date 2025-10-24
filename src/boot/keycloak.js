@@ -14,15 +14,21 @@ export default defineBoot(async ({ app }) => {
   app.provide('keycloak', keycloak)
 
   try {
-    // Permitir acesso anônimo na rota pública /#/publico/consulta
+    // Permitir acesso anônimo nas rotas públicas/externas
     const hash = typeof window !== 'undefined' ? String(window.location.hash || '') : ''
-    const isPublicRoute = hash.startsWith('#/publico/consulta') || hash.startsWith('#/publico')
+    const href = typeof window !== 'undefined' ? String(window.location.href || '') : ''
+    const isPublicRoute =
+      hash.startsWith('#/publico') ||
+      href.includes('/#/publico') ||
+      hash.startsWith('#/externo') ||
+      href.includes('/#/externo')
 
     await keycloak.init({
       onLoad: isPublicRoute ? 'check-sso' : 'login-required',
       pkceMethod: 'S256',
       responseMode: 'query', // evita conflito com router em modo 'hash'
       checkLoginIframe: false,
+      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
     })
     console.log('Keycloak inicializado', { isPublicRoute })
   } catch (error) {

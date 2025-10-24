@@ -252,23 +252,25 @@ describe('gerarPdfPublico', () => {
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('processo não público sem chave retorna 403', async () => {
+  it('processo não público sem CPF+chave retorna 403', async () => {
     // 1: SELECT documento (assinado, processo restrito)
     query.mockResolvedValueOnce({ rows: [{ id: 'doc-1', status: 'assinado', modo: 'Upload', file_name: 'arquivo.pdf', content_base64: 'abc', processoId: 'proc-1', nivelAcesso: 'Restrito' }] })
 
-    await expect(documentosService.gerarPdfPublico('doc-1', '')).rejects.toMatchObject({ code: 403 })
+    await expect(documentosService.gerarPdfPublico('doc-1', '', '')).rejects.toMatchObject({ code: 403 })
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('chave inválida retorna 403', async () => {
+  it('CPF/chave inválidos retornam 403', async () => {
     // 1: SELECT documento (assinado, processo restrito)
     query.mockResolvedValueOnce({ rows: [{ id: 'doc-1', status: 'assinado', modo: 'Upload', file_name: 'arquivo.pdf', content_base64: 'abc', processoId: 'proc-1', nivelAcesso: 'Restrito' }] })
-    // 2: SELECT chave inválida
+    // 2: SELECT credencial inválida
     query.mockResolvedValueOnce({ rows: [] })
 
-    await expect(documentosService.gerarPdfPublico('doc-1', 'chave-x')).rejects.toMatchObject({ code: 403 })
+    await expect(documentosService.gerarPdfPublico('doc-1', 'cpf-x', 'chave-x')).rejects.toMatchObject({ code: 403 })
     expect(query).toHaveBeenCalledTimes(2)
-    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('FROM processo_acesso_chaves'))
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('FROM processo_partes'))
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('JOIN cadastro_partes'))
+    expect(query.mock.calls[1][1]).toEqual(['proc-1', 'cpf-x', 'chave-x'])
   })
 
   it('upload PDF retorna conteúdo base64 e fileName do arquivo', async () => {

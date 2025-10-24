@@ -172,7 +172,9 @@ async function salvarParte() {
     console.error(e)
     const status = e?.response?.status
     const apiMsg = e?.response?.data?.error || e?.message
-    const baseMsg = editTarget.value ? 'Erro ao atualizar cadastro de parte' : 'Erro ao salvar cadastro de parte'
+    const baseMsg = editTarget.value
+      ? 'Erro ao atualizar cadastro de parte'
+      : 'Erro ao salvar cadastro de parte'
     const msg =
       status === 400
         ? `Validação falhou: ${apiMsg || 'verifique os campos informados'}`
@@ -203,6 +205,7 @@ const columns = [
       `${row.endereco_cidade || ''} ${row.endereco_estado ? '/' + row.endereco_estado : ''}`,
     align: 'left',
   },
+  { name: 'chave', label: 'Chave', field: 'chave', align: 'left' },
   { name: 'acoes', label: 'Ações', field: 'acoes', align: 'right' },
 ]
 

@@ -84,6 +84,21 @@ async function initDb() {
   `)
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS externo_documentos_temp (
+      id UUID PRIMARY KEY,
+      processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
+      parte_documento VARCHAR(50) NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      content_base64 TEXT NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'aguardando_analise',
+      titulo VARCHAR(255),
+      criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_proc ON externo_documentos_temp(processo_id);`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ext_docs_temp_parte ON externo_documentos_temp(parte_documento);`)
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS processo_partes (
       id UUID PRIMARY KEY,
       processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
@@ -140,27 +155,17 @@ async function initDb() {
       id UUID PRIMARY KEY,
       processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
       tipo VARCHAR(20) NOT NULL, -- SETOR | USUARIO | PARTE
-      valor VARCHAR(255),        -- SETOR sigla ou USUARIO login
-      parte_id UUID,             -- quando tipo = PARTE
+      valor VARCHAR(255),        -- SETOR sigla, USUARIO login ou PARTE id
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
+  // Remover coluna obsoleta caso exista, para alinhar com novo modelo
+  await pool.query(`ALTER TABLE processo_acessos DROP COLUMN IF EXISTS parte_id;`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_acessos_proc ON processo_acessos(processo_id);`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_acessos_tipo ON processo_acessos(tipo);`)
 
-  // Chaves de acesso externas para partes
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS processo_acesso_chaves (
-      id UUID PRIMARY KEY,
-      processo_id UUID NOT NULL REFERENCES processos(id) ON DELETE CASCADE,
-      parte_id UUID NOT NULL REFERENCES processo_partes(id) ON DELETE CASCADE,
-      chave VARCHAR(100) UNIQUE NOT NULL,
-      ativo BOOLEAN NOT NULL DEFAULT TRUE,
-      criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-  `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_chaves_proc ON processo_acesso_chaves(processo_id);`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proc_chaves_parte ON processo_acesso_chaves(parte_id);`)
+  // Removido: chaves de acesso externas
+  await pool.query(`DROP TABLE IF EXISTS processo_acesso_chaves;`)
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tramites (
@@ -309,6 +314,33 @@ async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cad_partes_nome ON cadastro_partes(nome);`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cad_partes_doc ON cadastro_partes(documento);`)
 
+  // Novas colunas de chave de acesso por parte (única e reutilizável)
+  await pool.query(`ALTER TABLE cadastro_partes ADD COLUMN IF NOT EXISTS chave VARCHAR(100);`)
+  await pool.query(
+    `ALTER TABLE cadastro_partes ADD COLUMN IF NOT EXISTS chave_ativo BOOLEAN NOT NULL DEFAULT TRUE;`
+  )
+  await pool.query(
+    `ALTER TABLE cadastro_partes ADD COLUMN IF NOT EXISTS chave_criado_em TIMESTAMPTZ NOT NULL DEFAULT now();`
+  )
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_cad_partes_chave ON cadastro_partes(chave);`
+  )
+
+  // Migração leve: gerar chave para registros existentes sem chave
+  try {
+    const { rows: semChave } = await pool.query(
+      `SELECT id FROM cadastro_partes WHERE chave IS NULL`
+    )
+    for (const row of semChave) {
+      const novo = require('crypto').randomUUID()
+      await pool.query(
+        `UPDATE cadastro_partes SET chave = $2, chave_ativo = TRUE WHERE id = $1`,
+        [row.id, novo]
+      )
+    }
+  } catch (e) {
+    console.warn('Aviso: geração de chaves para cadastro_partes não aplicada', e.message)
+  }
   // Tabela de auditoria (logs de ações)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS auditoria (

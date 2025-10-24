@@ -594,12 +594,11 @@ async function listTramites(processoId) {
   )
   return rows
 }
-async function consultarPublico(valorRaw, chave) {
+async function consultarPublico(valorRaw, cpf, chave) {
   const valor = decodeURIComponent(String(valorRaw || ''))
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(valor)
 
   let processo
-  let chaveValue = chave
   if (!isUuid) {
     const { rows } = await query(
       `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
@@ -618,23 +617,6 @@ async function consultarPublico(valorRaw, chave) {
     processo = rows[0]
   }
 
-  // Fallback: tentar resolver processo via chave de acesso ativa
-  if (isUuid && !processo) {
-    const { rows } = await query(
-      `SELECT p.id, p.numero, p.assunto, p.tipo, p.nivel_acesso AS "nivelAcesso", p.base_legal AS "baseLegal", p.observacoes, p.status, p.prioridade, p.prazo, p.setor_atual AS setor, p.atribuido_usuario AS "atribuidoA", p.criado_em AS "criadoEm",
-              COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
-         FROM processo_acesso_chaves c
-         JOIN processos p ON p.id = c.processo_id
-        WHERE c.chave = $1 AND c.ativo = TRUE
-        LIMIT 1`,
-      [valor],
-    )
-    processo = rows[0]
-    if (processo && !chaveValue) {
-      chaveValue = valor
-    }
-  }
-
   if (!processo) {
     const err = new Error('Processo não encontrado')
     err.code = 404
@@ -643,17 +625,25 @@ async function consultarPublico(valorRaw, chave) {
 
   const nivel = String(processo.nivelAcesso || '').toLowerCase()
   if (!(nivel === 'público' || nivel === 'publico')) {
-    if (!chaveValue) {
-      const err = new Error('Processo restrito')
+    // Processo restrito/sigiloso: exigir CPF e chave da parte
+    if (!cpf || !chave) {
+      const err = new Error('Processo restrito: CPF e chave são obrigatórios')
       err.code = 403
       throw err
     }
-    const { rows: keyRows } = await query(
-      `SELECT id FROM processo_acesso_chaves WHERE processo_id = $1 AND chave = $2 AND ativo = TRUE LIMIT 1`,
-      [processo.id, chaveValue],
+    const { rows: cred } = await query(
+      `SELECT 1
+         FROM processo_partes pp
+         JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+        WHERE pp.processo_id = $1
+          AND cp.documento = $2
+          AND cp.chave = $3
+          AND cp.chave_ativo = TRUE
+        LIMIT 1`,
+      [processo.id, cpf, chave],
     )
-    if (keyRows.length === 0) {
-      const err = new Error('Chave inválida ou revogada')
+    if (!cred.length) {
+      const err = new Error('Credenciais inválidas para acesso ao processo')
       err.code = 403
       throw err
     }
