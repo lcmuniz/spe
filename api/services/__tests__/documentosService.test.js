@@ -26,6 +26,8 @@ jest.mock('puppeteer', () => {
 describe('documentosService', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    // Reset DB query mock queue to avoid cross-test leakage of mockResolvedValueOnce
+    query.mockReset()
   })
 
   describe('listByProcesso', () => {
@@ -206,14 +208,14 @@ describe('documentosService', () => {
   describe('deletarRascunho', () => {
     it('impede excluir documento assinado (erro 400)', async () => {
       // 1: select documento status assinado
-      query.mockResolvedValueOnce({ rows: [{ status: 'assinado', autor_login: 'u1' }] })
+      query.mockResolvedValueOnce({ rows: [{ status: 'assinado', autor: 'u1' }] })
       await expect(documentosService.deletarRascunho('doc-1', { usuarioLogin: 'u1' })).rejects.toMatchObject({ code: 400 })
       expect(query).toHaveBeenCalledTimes(1)
     })
 
     it('exclui rascunho criado pelo usuário e retorna ok', async () => {
       // 1: select documento (rascunho, autor = u1)
-      query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', autor_login: 'u1' }] })
+      query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', autor: 'u1' }] })
       // 2: select processo vinculado ao documento
       query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1' }] })
       // 3: delete documento
@@ -428,10 +430,11 @@ describe('gerarPdfPublico adicionais', () => {
 describe('uploadConteudo adicionais', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    query.mockReset()
   })
 
   it('exige usuarioLogin para documento assinado', async () => {
-    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por_login: 'u2' }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por: 'u2' }] })
     await expect(
       documentosService.uploadConteudo('doc-1', { fileName: 'a.pdf', contentBase64: 'abc', usuarioLogin: '' })
     ).rejects.toMatchObject({ code: 400 })
@@ -440,7 +443,7 @@ describe('uploadConteudo adicionais', () => {
 
   it('usa defaults e atualiza assinado → rascunho quando fim da árvore', async () => {
     // 1: SELECT documento (assinado)
-    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por_login: 'uExec' }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por: 'uExec' }] })
     // 2: _validar -> SELECT processo vinculado e atribuição
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', atribuidoUsuario: 'uExec' }] })
     // 3: _validar -> SELECT setor do usuário
@@ -466,7 +469,7 @@ describe('uploadConteudo adicionais', () => {
 
   it('retorna 404 quando UPDATE não afeta linhas', async () => {
     // 1: SELECT documento (rascunho)
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     // 2: _validar -> SELECT processo vinculado
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', atribuidoUsuario: '' }] })
     // 3: _validar -> SELECT setor do usuário
@@ -486,7 +489,7 @@ describe('uploadConteudo adicionais', () => {
 
   it('lança 400 quando documento não está vinculado a processo (rascunho)', async () => {
     // 1: SELECT documento (rascunho)
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     // 2: _validar -> SELECT processo vinculado vazio
     query.mockResolvedValueOnce({ rows: [] })
 
@@ -501,10 +504,11 @@ describe('uploadConteudo adicionais', () => {
 describe('editorConteudo adicionais', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    query.mockReset()
   })
 
   it('exige usuarioLogin para rascunho', async () => {
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     await expect(
       documentosService.editorConteudo('doc-1', { conteudo: 'x', usuarioLogin: '' })
     ).rejects.toMatchObject({ code: 400 })
@@ -513,7 +517,7 @@ describe('editorConteudo adicionais', () => {
 
   it('retorna 404 quando UPDATE não afeta linhas', async () => {
     // 1: SELECT documento (rascunho)
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     // 2: _validar -> SELECT processo vinculado
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', atribuidoUsuario: '' }] })
     // 3: _validar -> SELECT setor do usuário
@@ -535,6 +539,7 @@ describe('editorConteudo adicionais', () => {
 describe('assinar adicionais', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    query.mockReset()
   })
 
   it('retorna 400 para Upload sem conteúdo', async () => {
@@ -603,8 +608,13 @@ describe('gerarPdfPublico adicionais (upload extensão não suportada)', () => {
 })
 
 describe('editorConteudo adicionais (regras de autorização)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    query.mockReset()
+  })
+
   it('impede editar assinado por outro usuário', async () => {
-    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por_login: 'u2' }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por: 'u2' }] })
     await expect(
       documentosService.editorConteudo('doc-1', { conteudo: 'x', usuarioLogin: 'u1' })
     ).rejects.toMatchObject({ code: 403 })
@@ -613,7 +623,7 @@ describe('editorConteudo adicionais (regras de autorização)', () => {
 
   it('retorna 403 quando documento não está no fim da árvore (editor assinado)', async () => {
     // 1: SELECT documento assinado por u1
-    query.mockResolvedValueOnce({ rows: [{ id: 'doc-fim-1', titulo: 'Titulo Legal', status: 'assinado', assinado_por_login: 'u1' }] })
+    query.mockResolvedValueOnce({ rows: [{ id: 'doc-fim-1', titulo: 'Titulo Legal', status: 'assinado', assinado_por: 'u1' }] })
     // 2: _validar -> processo atribuído ao mesmo usuário
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', vinculoId: 'v1', atribuidoUsuario: 'u1' }] })
     // 3: _validar -> setor do usuário
@@ -648,7 +658,7 @@ describe('uploadConteudo extra consolidação', () => {
   })
 
   it('exige usuarioLogin para rascunho', async () => {
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     await expect(
       documentosService.uploadConteudo('doc-1', { fileName: 'a.pdf', contentBase64: 'abc', usuarioLogin: '' })
     ).rejects.toMatchObject({ code: 400 })
@@ -657,7 +667,7 @@ describe('uploadConteudo extra consolidação', () => {
 
   it('atualiza conteúdo de rascunho no fim da árvore', async () => {
     // 1: SELECT documento
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     // 2: _validar -> SELECT processo
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', atribuidoUsuario: '' }] })
     // 3: _validar -> SELECT setor usuário
@@ -683,7 +693,7 @@ describe('uploadConteudo extra consolidação', () => {
 describe('deletarRascunho não vinculado', () => {
   it('erro 400 quando documento não vinculado a processo', async () => {
     // 1: SELECT documento rascunho autor
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', autor_login: 'u1' }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', autor: 'u1' }] })
     // 2: SELECT processo vinculado vazio
     query.mockResolvedValueOnce({ rows: [] })
     await expect(documentosService.deletarRascunho('doc-1', { usuarioLogin: 'u1' })).rejects.toMatchObject({ code: 400 })
@@ -693,6 +703,7 @@ describe('deletarRascunho não vinculado', () => {
 describe('editorConteudo extra consolidação', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    query.mockReset()
   })
 
   it('lança 404 quando documento não existe', async () => {
@@ -705,7 +716,7 @@ describe('editorConteudo extra consolidação', () => {
 
   it('edita rascunho quando no fim da árvore', async () => {
     // 1: SELECT documento
-    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por_login: null }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'rascunho', assinado_por: null }] })
     // 2: _validar -> SELECT processo
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', atribuidoUsuario: '' }] })
     // 3: _validar -> SELECT setor usuário
@@ -723,7 +734,7 @@ describe('editorConteudo extra consolidação', () => {
 
   it('edita assinado quando usuário é o assinante e no fim da árvore', async () => {
     // 1: SELECT documento
-    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por_login: 'u1' }] })
+    query.mockResolvedValueOnce({ rows: [{ status: 'assinado', assinado_por: 'u1' }] })
     // 2: _validar -> SELECT processo
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', atribuidoUsuario: 'u1' }] })
     // 3: _validar -> SELECT setor usuário
@@ -741,7 +752,7 @@ describe('editorConteudo extra consolidação', () => {
 
   it('retorna 400 quando processo não está atribuído ao editar assinado', async () => {
     query.mockReset()
-    query.mockResolvedValueOnce({ rows: [{ id: 'doc-atrib-1', titulo: 'Doc Atrib', status: 'assinado', assinado_por_login: 'u1' }] })
+    query.mockResolvedValueOnce({ rows: [{ id: 'doc-atrib-1', titulo: 'Doc Atrib', status: 'assinado', assinado_por: 'u1' }] })
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-1', vinculoId: 'v1', atribuidoUsuario: '' }] })
 
     await expect(
@@ -753,7 +764,7 @@ describe('editorConteudo extra consolidação', () => {
 
   it('retorna 403 quando processo está atribuído a outro usuário ao editar assinado', async () => {
     query.mockReset()
-    query.mockResolvedValueOnce({ rows: [{ id: 'doc-atrib-2', titulo: 'Doc Atrib 2', status: 'assinado', assinado_por_login: 'u1' }] })
+    query.mockResolvedValueOnce({ rows: [{ id: 'doc-atrib-2', titulo: 'Doc Atrib 2', status: 'assinado', assinado_por: 'u1' }] })
     query.mockResolvedValueOnce({ rows: [{ processoId: 'proc-2', vinculoId: 'v2', atribuidoUsuario: 'u2' }] })
 
     await expect(
@@ -765,7 +776,10 @@ describe('editorConteudo extra consolidação', () => {
 })
 
 describe('editorConteudo casos de borda (fim da árvore)', () => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    query.mockReset()
+  })
 
   it('permite editar rascunho quando há assinatura anterior de outro setor e doc está em endStart', async () => {
     // 1: SELECT documento
@@ -821,6 +835,7 @@ describe('editorConteudo casos de borda (fim da árvore)', () => {
 describe('documentosService - seedByProcesso', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    query.mockReset()
   })
 
   it('lança 404 quando processo não existe', async () => {
