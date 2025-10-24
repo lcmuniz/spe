@@ -82,6 +82,31 @@
 
         <q-card flat bordered class="q-mt-md">
           <q-card-section>
+            <div class="text-h6">Partes/Interessados</div>
+          </q-card-section>
+          <q-separator />
+          <q-card-section>
+            <div
+              v-if="(resultado.partesPublicas || []).length === 0"
+              class="text-caption text-grey-7"
+            >
+              Nenhuma parte pública vinculada.
+            </div>
+            <q-table
+              v-else
+              flat
+              bordered
+              dense
+              row-key="id"
+              :rows="resultado.partesPublicas"
+              :columns="columnsPartesPublicas"
+              :pagination="{ rowsPerPage: 10 }"
+            />
+          </q-card-section>
+        </q-card>
+
+        <q-card flat bordered class="q-mt-md">
+          <q-card-section>
             <div class="text-h6">Andamentos</div>
           </q-card-section>
           <q-separator />
@@ -176,6 +201,12 @@ const columnsAndamentos = [
   },
 ]
 
+const columnsPartesPublicas = [
+  { name: 'tipo', label: 'Tipo', field: 'tipo', align: 'left' },
+  { name: 'nome', label: 'Nome', field: 'nome', align: 'left' },
+  { name: 'papel', label: 'Papel', field: 'papel', align: 'left' },
+]
+
 function formatDate(value) {
   if (!value) return ''
   const d = new Date(value)
@@ -225,6 +256,20 @@ async function consultar() {
           documentosPublicos: (docs.data || []).filter(
             (d) => String(d.status || '').toLowerCase() === 'assinado',
           ),
+          partesPublicas: [],
+        }
+        try {
+          const proc = await api.get(`/processos/${item.id}`)
+          const partes = (proc.data?.partes || []).map((p) => ({
+            id: p.id,
+            tipo: p.tipo,
+            nome: p.nome,
+            papel: p.papel,
+          }))
+          resultado.value.partesPublicas = partes
+        } catch (_e2) {
+          // mantém partesPublicas como lista vazia no fallback, se falhar
+          resultado.value.partesPublicas = []
         }
       } catch (errFallback) {
         const status = errFallback?.response?.status

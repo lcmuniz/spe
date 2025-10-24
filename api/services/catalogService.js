@@ -1,7 +1,9 @@
 const { query } = require('../db')
 
 async function listSetores() {
-  const { rows } = await query(`SELECT s.sigla, s.nome FROM setores s WHERE s.sigla <> 'ARQUIVO' ORDER BY s.nome`)
+  const { rows } = await query(
+    `SELECT s.sigla, s.nome FROM setores s WHERE s.sigla <> 'ARQUIVO' ORDER BY s.nome`,
+  )
   return rows
 }
 

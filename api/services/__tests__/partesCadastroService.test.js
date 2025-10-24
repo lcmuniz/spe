@@ -176,5 +176,21 @@ describe('partesCadastroService', () => {
       expect(query.mock.calls[1][1]).toEqual(['p1'])
       expect(res).toEqual({ ok: true })
     })
+
+    it('exclui quando SELECT retorna objeto sem rows (links.rows indefinido)', async () => {
+      // 1) SELECT vínculo sem propriedade rows
+      query.mockResolvedValueOnce({})
+      // 2) DELETE cadastro
+      query.mockResolvedValueOnce({ rowCount: 1 })
+
+      const res = await service.removerParteCadastro('p1')
+
+      expect(query).toHaveBeenCalledTimes(2)
+      expect(query.mock.calls[1][0]).toEqual(
+        expect.stringContaining('DELETE FROM cadastro_partes WHERE id = $1'),
+      )
+      expect(query.mock.calls[1][1]).toEqual(['p1'])
+      expect(res).toEqual({ ok: true })
+    })
   })
 })

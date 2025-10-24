@@ -114,6 +114,29 @@ async function createProcesso({
       [id, docId],
     )
   }
+
+  // Andamento inicial: origem = destino = setor atual, motivo fixo
+  const { rows: setorRows } = await query(
+    `SELECT setor_atual FROM processos WHERE id = $1`,
+    [id],
+  )
+  const setorAtual = setorRows?.[0]?.setor_atual || 'PROTOCOLO'
+  const tramiteId = uuidv4()
+  await query(
+    `INSERT INTO tramites (id, processo_id, origem_setor, destino_setor, motivo, prioridade, prazo, origem_usuario)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      tramiteId,
+      id,
+      setorAtual,
+      setorAtual,
+      'Andamento inicial',
+      null,
+      null,
+      criadorLogin || null,
+    ],
+  )
+
   await commitTransaction()
 
   const interessadoRow = await query(
@@ -251,7 +274,7 @@ async function atribuir(id, { usuario, executadoPor }) {
     `SELECT id, numero, assunto, status, prioridade, prazo, nivel_acesso AS "nivelAcesso", setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao" FROM processos WHERE id = $1`,
     [id],
   )
-  return { processo: rows[0], details: { de: atualAtribuido || null, para: usuario } }
+  return { processo: rows[0], detalhes: { de: atualAtribuido || null, para: usuario } }
 }
 
 async function priorizar(id, { prioridade, executadoPor }) {
@@ -576,6 +599,7 @@ async function consultarPublico(valorRaw, chave) {
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(valor)
 
   let processo
+  let chaveValue = chave
   if (!isUuid) {
     const { rows } = await query(
       `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
@@ -594,6 +618,23 @@ async function consultarPublico(valorRaw, chave) {
     processo = rows[0]
   }
 
+  // Fallback: tentar resolver processo via chave de acesso ativa
+  if (isUuid && !processo) {
+    const { rows } = await query(
+      `SELECT p.id, p.numero, p.assunto, p.tipo, p.nivel_acesso AS "nivelAcesso", p.base_legal AS "baseLegal", p.observacoes, p.status, p.prioridade, p.prazo, p.setor_atual AS setor, p.atribuido_usuario AS "atribuidoA", p.criado_em AS "criadoEm",
+              COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
+         FROM processo_acesso_chaves c
+         JOIN processos p ON p.id = c.processo_id
+        WHERE c.chave = $1 AND c.ativo = TRUE
+        LIMIT 1`,
+      [valor],
+    )
+    processo = rows[0]
+    if (processo && !chaveValue) {
+      chaveValue = valor
+    }
+  }
+
   if (!processo) {
     const err = new Error('Processo não encontrado')
     err.code = 404
@@ -602,14 +643,14 @@ async function consultarPublico(valorRaw, chave) {
 
   const nivel = String(processo.nivelAcesso || '').toLowerCase()
   if (!(nivel === 'público' || nivel === 'publico')) {
-    if (!chave) {
+    if (!chaveValue) {
       const err = new Error('Processo restrito')
       err.code = 403
       throw err
     }
     const { rows: keyRows } = await query(
       `SELECT id FROM processo_acesso_chaves WHERE processo_id = $1 AND chave = $2 AND ativo = TRUE LIMIT 1`,
-      [processo.id, chave],
+      [processo.id, chaveValue],
     )
     if (keyRows.length === 0) {
       const err = new Error('Chave inválida ou revogada')
@@ -655,6 +696,18 @@ async function consultarPublico(valorRaw, chave) {
     [processoId],
   )
 
+  const { rows: partesRows } = await query(
+    `SELECT pp.id,
+            cp.tipo,
+            cp.nome,
+            pp.papel
+       FROM processo_partes pp
+       LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
+      WHERE pp.processo_id = $1
+      ORDER BY pp.id`,
+    [processoId],
+  )
+
   return {
     capaPublica: {
       id: processo.id,
@@ -664,6 +717,7 @@ async function consultarPublico(valorRaw, chave) {
     },
     andamentosPublicos: tramitesRows,
     documentosPublicos: docsRows,
+    partesPublicas: partesRows,
   }
 }
 async function aceitarPendencia(id, { usuario }) {

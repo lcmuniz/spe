@@ -74,86 +74,150 @@ describe('processosService', () => {
     })
 
     it('cria processo com defaults, insere partes e documentos, e retorna view', async () => {
-      // Preparar UUIDs previsíveis
-      uuidv4
-        .mockReturnValueOnce('proc-123') // id do processo
-        .mockReturnValueOnce('parte-1')
-        .mockReturnValueOnce('parte-2')
+    // Preparar UUIDs previsíveis
+    uuidv4
+      .mockReturnValueOnce('proc-123') // id do processo
+      .mockReturnValueOnce('parte-1')
+      .mockReturnValueOnce('parte-2')
 
+    // BEGIN
+    query.mockResolvedValueOnce({})
+    // INSERT processos
+    query.mockResolvedValueOnce({})
+    // INSERT cadastro_partes (2 partes)
+    query.mockResolvedValueOnce({})
+    query.mockResolvedValueOnce({})
+    // INSERT processo_partes (2 partes)
+    query.mockResolvedValueOnce({})
+    query.mockResolvedValueOnce({})
+    // INSERT processo_documentos (2 documentos)
+    query.mockResolvedValueOnce({})
+    query.mockResolvedValueOnce({})
+    // SELECT setor_atual
+    query.mockResolvedValueOnce({ rows: [{ setor_atual: 'PROTOCOLO' }] })
+    // INSERT tramites (andamento inicial)
+    query.mockResolvedValueOnce({})
+    // COMMIT
+    query.mockResolvedValueOnce({})
+    // SELECT interessado
+    query.mockResolvedValueOnce({ rows: [{ nome: 'Alice' }] })
+
+    const result = await processosService.createProcesso({
+      assunto: 'Assunto X',
+      observacoes: undefined,
+      partes: [
+        { tipo: 'Pessoa', nome: 'Alice', documento: '123', papel: 'Interessado' },
+        { tipo: 'Pessoa', nome: 'Bob', documento: '456', papel: 'Interessado' },
+      ],
+      documentosIds: ['doc-1', 'doc-2'],
+      executadoPor: 'user1',
+    })
+
+    // Verificar chamadas
+    expect(query).toHaveBeenCalledTimes(12)
+    expect(query.mock.calls[0][0]).toBe('BEGIN')
+    expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('INSERT INTO processos'))
+    const insertProcParams = query.mock.calls[1][1]
+    expect(insertProcParams[0]).toBe('proc-123')
+    expect(insertProcParams[1]).toEqual(expect.stringMatching(/^\d{8}-\d{6}-\d{3}$/))
+    expect(insertProcParams[2]).toBe('Assunto X')
+    expect(insertProcParams[3]).toBe('Processo')
+    expect(insertProcParams[4]).toBe('Público')
+    expect(insertProcParams[5]).toBeNull()
+    expect(insertProcParams[6]).toBe('')
+    expect(insertProcParams[7]).toBe('user1')
+
+    // Inserts de cadastro_partes + processo_partes
+    expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO cadastro_partes'))
+    expect(query.mock.calls[3][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
+    expect(query.mock.calls[4][0]).toEqual(expect.stringContaining('INSERT INTO cadastro_partes'))
+    expect(query.mock.calls[5][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
+
+    // Inserts de documentos
+    expect(query.mock.calls[6][0]).toEqual(
+      expect.stringContaining('INSERT INTO processo_documentos'),
+    )
+    expect(query.mock.calls[7][0]).toEqual(
+      expect.stringContaining('INSERT INTO processo_documentos'),
+    )
+
+    // Andamento inicial
+    const sqls = query.mock.calls.map(c => c[0])
+    expect(sqls.some(s => s.includes('INSERT INTO tramites'))).toBe(true)
+
+    expect(query.mock.calls[10][0]).toBe('COMMIT')
+    expect(query.mock.calls[11][0]).toEqual(expect.stringContaining('SELECT cp.nome'))
+    expect(query.mock.calls[11][0]).toEqual(expect.stringContaining('FROM processo_partes pp'))
+
+    // Verificar retorno
+    expect(result.id).toBe('proc-123')
+    expect(result.numero).toEqual(expect.stringMatching(/^\d{8}-\d{6}-\d{3}$/))
+    expect(result.assunto).toBe('Assunto X')
+    expect(result.tipo).toBe('Processo')
+    expect(result.nivelAcesso).toBe('Público')
+    expect(result.baseLegal).toBeNull()
+    expect(result.observacoes).toBe('')
+    expect(result.interessado).toBe('Alice')
+    expect(result.setor).toBe('PROTOCOLO')
+    expect(result.status).toBe('Em instrução')
+    expect(result.prioridade).toBe('Normal')
+    expect(result.atribuidoA).toBe('user1')
+  })
+
+    it('retorna 404 quando partes inclui parteId inexistente', async () => {
       // BEGIN
       query.mockResolvedValueOnce({})
       // INSERT processos
       query.mockResolvedValueOnce({})
-      // INSERT cadastro_partes (2 partes)
+      // SELECT cadastro_partes pelo parteId (não encontrado)
+      query.mockResolvedValueOnce({ rows: [] })
+
+      await expect(
+        processosService.createProcesso({
+          assunto: 'Assunto', nivelAcesso: 'Público', executadoPor: 'uExec',
+          partes: [{ parteId: 'cad-inexistente', papel: 'Interessado' }],
+        }),
+      ).rejects.toMatchObject({ code: 404 })
+
+      const sqls = query.mock.calls.map(c => c[0])
+      expect(query).toHaveBeenCalledTimes(3)
+      expect(sqls[0]).toBe('BEGIN')
+      expect(sqls[1]).toEqual(expect.stringContaining('INSERT INTO processos'))
+      expect(sqls[2]).toEqual(expect.stringContaining('SELECT id FROM cadastro_partes'))
+      expect(sqls.some(s => s === 'COMMIT')).toBe(false)
+    })
+
+    it('vincula parte existente via parteId sem criar cadastro', async () => {
+      // BEGIN
       query.mockResolvedValueOnce({})
+      // INSERT processos
       query.mockResolvedValueOnce({})
-      // INSERT processo_partes (2 partes)
+      // SELECT cadastro_partes pelo parteId (encontrado)
+      query.mockResolvedValueOnce({ rows: [{ id: 'cad-1' }] })
+      // INSERT processo_partes
       query.mockResolvedValueOnce({})
-      query.mockResolvedValueOnce({})
-      // INSERT processo_documentos (2 documentos)
-      query.mockResolvedValueOnce({})
+      // SELECT setor_atual
+      query.mockResolvedValueOnce({ rows: [{ setor_atual: 'PROTOCOLO' }] })
+      // INSERT tramite inicial
       query.mockResolvedValueOnce({})
       // COMMIT
       query.mockResolvedValueOnce({})
-      // SELECT interessado
-      query.mockResolvedValueOnce({ rows: [{ nome: 'Alice' }] })
+      // SELECT primeiro interessado
+      query.mockResolvedValueOnce({ rows: [{ nome: 'João' }] })
 
-      const result = await processosService.createProcesso({
-        assunto: 'Assunto X',
-        observacoes: undefined,
-        partes: [
-          { tipo: 'Pessoa', nome: 'Alice', documento: '123', papel: 'Interessado' },
-          { tipo: 'Pessoa', nome: 'Bob', documento: '456', papel: 'Interessado' },
-        ],
-        documentosIds: ['doc-1', 'doc-2'],
-        executadoPor: 'user1',
+      const view = await processosService.createProcesso({
+        assunto: 'Assunto', tipo: 'Processo', nivelAcesso: 'Público', observacoes: '',
+        partes: [{ parteId: 'cad-1', papel: 'Interessado' }],
+        executadoPor: 'uExec', documentosIds: [],
       })
 
-      // Verificar chamadas
-      expect(query).toHaveBeenCalledTimes(10)
-      expect(query.mock.calls[0][0]).toBe('BEGIN')
-      expect(query.mock.calls[1][0]).toEqual(expect.stringContaining('INSERT INTO processos'))
-      const insertProcParams = query.mock.calls[1][1]
-      expect(insertProcParams[0]).toBe('proc-123')
-      expect(insertProcParams[1]).toEqual(expect.stringMatching(/^\d{8}-\d{6}-\d{3}$/))
-      expect(insertProcParams[2]).toBe('Assunto X')
-      expect(insertProcParams[3]).toBe('Processo')
-      expect(insertProcParams[4]).toBe('Público')
-      expect(insertProcParams[5]).toBeNull()
-      expect(insertProcParams[6]).toBe('')
-      expect(insertProcParams[7]).toBe('user1')
-
-      // Inserts de cadastro_partes + processo_partes
-      expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO cadastro_partes'))
-      expect(query.mock.calls[3][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
-      expect(query.mock.calls[4][0]).toEqual(expect.stringContaining('INSERT INTO cadastro_partes'))
-      expect(query.mock.calls[5][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
-
-      // Inserts de documentos
-      expect(query.mock.calls[6][0]).toEqual(
-        expect.stringContaining('INSERT INTO processo_documentos'),
-      )
-      expect(query.mock.calls[7][0]).toEqual(
-        expect.stringContaining('INSERT INTO processo_documentos'),
-      )
-
-      expect(query.mock.calls[8][0]).toBe('COMMIT')
-      expect(query.mock.calls[9][0]).toEqual(expect.stringContaining('SELECT cp.nome'))
-      expect(query.mock.calls[9][0]).toEqual(expect.stringContaining('FROM processo_partes pp'))
-
-      // Verificar retorno
-      expect(result.id).toBe('proc-123')
-      expect(result.numero).toEqual(expect.stringMatching(/^\d{8}-\d{6}-\d{3}$/))
-      expect(result.assunto).toBe('Assunto X')
-      expect(result.tipo).toBe('Processo')
-      expect(result.nivelAcesso).toBe('Público')
-      expect(result.baseLegal).toBeNull()
-      expect(result.observacoes).toBe('')
-      expect(result.interessado).toBe('Alice')
-      expect(result.setor).toBe('PROTOCOLO')
-      expect(result.status).toBe('Em instrução')
-      expect(result.prioridade).toBe('Normal')
-      expect(result.atribuidoA).toBe('user1')
+      const sqls = query.mock.calls.map(c => c[0])
+      expect(sqls.some(s => s.includes('INSERT INTO cadastro_partes'))).toBe(false)
+      expect(sqls.some(s => s.includes('INSERT INTO processo_partes'))).toBe(true)
+      expect(sqls.some(s => s === 'COMMIT')).toBe(true)
+      expect(view.interessado).toBe('João')
+      expect(view.setor).toBe('PROTOCOLO')
+      expect(view.prioridade).toBe('Normal')
     })
   })
 
@@ -233,7 +297,7 @@ describe('processosService', () => {
       expect(query).toHaveBeenCalledTimes(1)
     })
 
-    it('retorna 403 quando processo está atribuído a outro usuário', async () => {
+    it('retorna 403 quando processo não está atribuído ao executor', async () => {
       query.mockResolvedValueOnce({ rows: [{ setor_atual: 'TI', atribuido_usuario: 'outro' }] })
       await expect(
         processosService.atribuir('proc-1', { usuario: 'uDest', executadoPor: 'uExec' }),
@@ -296,7 +360,127 @@ describe('processosService', () => {
         expect.stringContaining('UPDATE processos SET atribuido_usuario = $1'),
         ['uDest', 'proc-1'],
       ])
-      expect(result).toEqual({ processo: procRow, details: { de: 'uExec', para: 'uDest' } })
+      expect(result).toEqual({ processo: procRow, detalhes: { de: 'uExec', para: 'uDest' } })
+    })
+
+    it('retorna 403 quando processo restrito e destino não possui acesso', async () => {
+      // SELECT processo com acesso restrito
+      query.mockResolvedValueOnce({ rows: [{ setor_atual: 'TI', atribuido_usuario: 'uExec', nivel_acesso: 'Restrito' }] })
+      // SELECT usuário destino no mesmo setor
+      query.mockResolvedValueOnce({ rows: [{ setor: 'TI' }] })
+      // SELECT processo_acessos sem registros
+      query.mockResolvedValueOnce({ rows: [] })
+
+      await expect(
+        processosService.atribuir('proc-1', { usuario: 'uDest', executadoPor: 'uExec' }),
+      ).rejects.toMatchObject({ code: 403 })
+      expect(query).toHaveBeenCalledTimes(3)
+    })
+
+    it('retorna 404 quando UPDATE não afeta nenhuma linha', async () => {
+      // SELECT processo público
+      query.mockResolvedValueOnce({ rows: [{ setor_atual: 'TI', atribuido_usuario: 'uExec', nivel_acesso: 'Público' }] })
+      // SELECT usuário destino no mesmo setor
+      query.mockResolvedValueOnce({ rows: [{ setor: 'TI' }] })
+      // UPDATE sem linhas afetadas
+      query.mockResolvedValueOnce({ rowCount: 0 })
+
+      await expect(
+        processosService.atribuir('proc-1', { usuario: 'uDest', executadoPor: 'uExec' }),
+      ).rejects.toMatchObject({ code: 404 })
+      expect(query).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  describe('consultarPublico', () => {
+    beforeEach(() => {
+      jest.clearAllMocks()
+    })
+
+    it('retorna 404 quando processo não encontrado pelo número', async () => {
+      query.mockResolvedValueOnce({ rows: [] })
+      await expect(processosService.consultarPublico('N-404')).rejects.toMatchObject({ code: 404 })
+      expect(query).toHaveBeenCalledTimes(1)
+      expect(query.mock.calls[0][0]).toEqual(expect.stringContaining('FROM processos p'))
+      expect(query.mock.calls[0][1]).toEqual(['N-404'])
+    })
+
+    it('retorna 403 quando restrito sem chave', async () => {
+      query.mockResolvedValueOnce({
+        rows: [
+          { id: 'p1', numero: 'N1', assunto: 'A', nivelAcesso: 'Restrito', status: 'Em instrução' },
+        ],
+      })
+      await expect(processosService.consultarPublico('N1')).rejects.toMatchObject({ code: 403 })
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('retorna dados públicos quando processo é público (por número)', async () => {
+      query.mockResolvedValueOnce({
+        rows: [
+          { id: 'p1', numero: 'N1', assunto: 'A', nivelAcesso: 'Público', status: 'Em instrução' },
+        ],
+      })
+      const docsRows = [
+        {
+          id: 'd1',
+          titulo: 'T1',
+          tipo: 'Memo',
+          modo: 'upload',
+          status: 'Assinado',
+          fileName: 't1.pdf',
+          criadoEm: '2024-01-01T00:00:00.000Z',
+          assinadoPorLogin: 'user1',
+          assinaturaNome: 'User 1',
+          assinaturaCargo: 'Agente',
+          assinanteSetor: 'PROTOCOLO',
+        },
+      ]
+      query.mockResolvedValueOnce({ rows: docsRows })
+      const tramitesRows = [
+        {
+          id: 't1',
+          origemSetor: 'TI',
+          destinoSetor: 'PROTOCOLO',
+          motivo: 'M',
+          prioridade: 'Alta',
+          prazo: '2024-12-31',
+          usuario: 'user1',
+          data: '2024-01-02T00:00:00.000Z',
+        },
+      ]
+      query.mockResolvedValueOnce({ rows: tramitesRows })
+      const partesRows = [
+        { id: 'pp1', tipo: 'Pessoa Física', nome: 'Alice', papel: 'Interessado' },
+      ]
+      query.mockResolvedValueOnce({ rows: partesRows })
+
+      const result = await processosService.consultarPublico('N1')
+
+      expect(query).toHaveBeenCalledTimes(4)
+      expect(result).toEqual({
+        capaPublica: { id: 'p1', numero: 'N1', assunto: 'A', status: 'Em instrução' },
+        andamentosPublicos: tramitesRows,
+        documentosPublicos: docsRows,
+        partesPublicas: partesRows,
+      })
+    })
+
+    it('busca por UUID quando valor é UUID', async () => {
+      const uuid = '123e4567-e89b-12d3-a456-426614174000'
+      query.mockResolvedValueOnce({
+        rows: [
+          { id: uuid, numero: 'N1', assunto: 'A', nivelAcesso: 'Público', status: 'Em instrução' },
+        ],
+      })
+      query.mockResolvedValueOnce({ rows: [] })
+      query.mockResolvedValueOnce({ rows: [] })
+      query.mockResolvedValueOnce({ rows: [] })
+
+      const result = await processosService.consultarPublico(uuid)
+      expect(query).toHaveBeenCalledTimes(4)
+      expect(query.mock.calls[0][0]).toEqual(expect.stringContaining('WHERE id = $1'))
+      expect(result.capaPublica.id).toBe(uuid)
     })
   })
 
@@ -379,8 +563,86 @@ describe('processosService', () => {
         },
       })
     })
+
+    it('tramita alterando somente prazo e mantém prioridade original', async () => {
+      uuidv4.mockReturnValueOnce('tram-456')
+
+      // 1: SELECT processo atribuído ao executor
+      query.mockResolvedValueOnce({ rows: [{ setor_atual: 'TI', atribuido_usuario: 'uExec' }] })
+      // 2: BEGIN
+      query.mockResolvedValueOnce({})
+      // 3: INSERT tramites
+      query.mockResolvedValueOnce({})
+      // 4: UPDATE processos (prazo novo, prioridade mantida)
+      query.mockResolvedValueOnce({})
+      // 5: COMMIT
+      query.mockResolvedValueOnce({})
+      // 6: SELECT retorno com prioridade original e prazo atualizado
+      const procRow = {
+        id: 'proc-1',
+        numero: 'N',
+        assunto: 'A',
+        status: 'Aguardando',
+        prioridade: 'Normal',
+        prazo: '2025-01-31',
+        nivelAcesso: 'Público',
+        setor: 'PROTOCOLO',
+        atribuidoA: null,
+        criadoEm: '2024-01-01T00:00:00.000Z',
+      }
+      query.mockResolvedValueOnce({ rows: [procRow] })
+
+      const result = await processosService.tramitar('proc-1', {
+        destinoSetor: 'PROTOCOLO',
+        usuario: 'uExec',
+        motivo: 'M2',
+        prazo: '2025-01-31',
+      })
+
+      expect(query).toHaveBeenCalledTimes(6)
+      expect(query.mock.calls[3][0]).toEqual(expect.stringContaining('UPDATE processos'))
+      expect(query.mock.calls[3][1]).toEqual(['PROTOCOLO', 'proc-1', 'TI', null, '2025-01-31'])
+      expect(result).toEqual({
+        processo: procRow,
+        detalhes: {
+          origem: 'TI',
+          destino: 'PROTOCOLO',
+          motivo: 'M2',
+          prioridade: null,
+          prazo: '2025-01-31',
+          tramiteId: 'tram-456',
+        },
+      })
+    })
+
+    it('tramita sem motivo e prazo, com prioridade definida', async () => {
+      uuidv4.mockReturnValueOnce('tram-789')
+
+      // 1: SELECT processo atribuído ao executor
+      query.mockResolvedValueOnce({ rows: [{ setor_atual: 'PROTOCOLO', atribuido_usuario: 'uExec' }] })
+      // 2: BEGIN
+      query.mockResolvedValueOnce({})
+      // 3: INSERT tramites
+      query.mockResolvedValueOnce({})
+      // 4: UPDATE processos
+      query.mockResolvedValueOnce({})
+      // 5: COMMIT
+      query.mockResolvedValueOnce({})
+      // 6: SELECT retorno
+      query.mockResolvedValueOnce({ rows: [{ id: 'p1', setor: 'ARQUIVO', prioridade: 'Alta', prazo: null }] })
+
+      const res = await processosService.tramitar('p1', { destinoSetor: 'ARQUIVO', usuario: 'uExec', prioridade: 'Alta' })
+
+      expect(query).toHaveBeenCalledTimes(6)
+      expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO tramites'))
+      expect(query.mock.calls[4][0]).toBe('COMMIT')
+      expect(res.detalhes.origem).toBe('PROTOCOLO')
+      expect(res.detalhes.destino).toBe('ARQUIVO')
+      expect(res.detalhes.motivo).toBeNull()
+      expect(res.detalhes.prazo).toBeNull()
+      expect(res.detalhes.prioridade).toBe('Alta')
+    })
   })
-})
 
 describe('listProcessos', () => {
   beforeEach(() => {
@@ -537,8 +799,8 @@ describe('listProcessos', () => {
     expect(itemsParams.slice(0, 2)).toEqual(['PROTOCOLO', 'user1'])
   })
 })
-
-describe('addParte', () => {
+ 
+  describe('addParte', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
@@ -588,6 +850,53 @@ describe('addParte', () => {
     expect(query).toHaveBeenCalledTimes(4)
     expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
     expect(result).toEqual(parteRow)
+  })
+
+  it('retorna 404 quando parteId inexiste no cadastro', async () => {
+    // SELECT processo existente
+    query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
+    // SELECT cadastro_partes não encontrado
+    query.mockResolvedValueOnce({ rows: [] })
+
+    await expect(
+      processosService.addParte('proc-1', { parteId: 'cad-404', papel: 'Interessado' }),
+    ).rejects.toMatchObject({ code: 404 })
+    expect(query).toHaveBeenCalledTimes(2)
+  })
+
+  it('retorna 404 quando processo não existe via parteId', async () => {
+    // SELECT processo inexistente
+    query.mockResolvedValueOnce({ rows: [] })
+
+    await expect(
+      processosService.addParte('proc-404', { parteId: 'cad-1', papel: 'Interessado' }),
+    ).rejects.toMatchObject({ code: 404 })
+    expect(query).toHaveBeenCalledTimes(1)
+  })
+
+  it('vincula cadastro existente via parteId sem inserir novo cadastro', async () => {
+    // SELECT processo existente
+    query.mockResolvedValueOnce({ rows: [{ id: 'proc-1' }] })
+    // SELECT cadastro_partes encontrado
+    query.mockResolvedValueOnce({ rows: [{ id: 'cad-1', tipo: 'Pessoa', nome: 'Bob', documento: '999' }] })
+    // INSERT processo_partes com cadastro_parte_id
+    query.mockResolvedValueOnce({})
+    // SELECT parte vinculada
+    const parteLink = {
+      id: 'uuid-link',
+      tipo: 'Pessoa',
+      nome: 'Bob',
+      documento: '999',
+      papel: 'Interessado',
+      cadastroParteId: 'cad-1',
+    }
+    query.mockResolvedValueOnce({ rows: [parteLink] })
+
+    const result = await processosService.addParte('proc-1', { parteId: 'cad-1', papel: 'Interessado' })
+
+    expect(query).toHaveBeenCalledTimes(4)
+    expect(query.mock.calls[2][0]).toEqual(expect.stringContaining('INSERT INTO processo_partes'))
+    expect(result).toEqual(parteLink)
   })
 
   describe('deleteParte', () => {
@@ -663,6 +972,68 @@ describe('consultarPublico', () => {
     ])
   })
 
+  it('retorna dados públicos quando restrito com chave válida', async () => {
+    // 1: processo restrito
+    query.mockResolvedValueOnce({
+      rows: [
+        { id: 'p1', numero: 'N1', assunto: 'A', nivelAcesso: 'Restrito', status: 'Em instrução' },
+      ],
+    })
+    // 2: chave ativa válida
+    query.mockResolvedValueOnce({ rows: [{ id: 'acesso-1' }] })
+    // 3: documentos
+    const docsRows = [
+      {
+        id: 'd1',
+        titulo: 'T1',
+        tipo: 'Memo',
+        modo: 'upload',
+        status: 'Assinado',
+        fileName: 't1.pdf',
+        criadoEm: '2024-01-01T00:00:00.000Z',
+        assinadoPorLogin: 'user1',
+        assinaturaNome: 'User 1',
+        assinaturaCargo: 'Agente',
+        assinanteSetor: 'PROTOCOLO',
+      },
+    ]
+    query.mockResolvedValueOnce({ rows: docsRows })
+    // 4: tramites
+    const tramitesRows = [
+      {
+        id: 't1',
+        origemSetor: 'TI',
+        destinoSetor: 'PROTOCOLO',
+        motivo: 'M',
+        prioridade: 'Alta',
+        prazo: '2024-12-31',
+        usuario: 'user1',
+        data: '2024-01-02T00:00:00.000Z',
+      },
+    ]
+    query.mockResolvedValueOnce({ rows: tramitesRows })
+    // 5: partes
+    const partesRows = [
+      { id: 'pp1', tipo: 'Pessoa Física', nome: 'Alice', papel: 'Interessado' },
+    ]
+    query.mockResolvedValueOnce({ rows: partesRows })
+
+    const result = await processosService.consultarPublico('N1', 'abc123')
+
+    expect(query).toHaveBeenCalledTimes(5)
+    // valida consulta da chave
+    expect(query.mock.calls[1]).toEqual([
+      expect.stringContaining('FROM processo_acesso_chaves'),
+      ['p1', 'abc123'],
+    ])
+    expect(result).toEqual({
+      capaPublica: { id: 'p1', numero: 'N1', assunto: 'A', status: 'Em instrução' },
+      andamentosPublicos: tramitesRows,
+      documentosPublicos: docsRows,
+      partesPublicas: partesRows,
+    })
+  })
+
   it('retorna dados públicos quando processo é público (por número)', async () => {
     query.mockResolvedValueOnce({
       rows: [
@@ -698,14 +1069,19 @@ describe('consultarPublico', () => {
       },
     ]
     query.mockResolvedValueOnce({ rows: tramitesRows })
+    const partesRows = [
+      { id: 'pp1', tipo: 'Pessoa Física', nome: 'Alice', papel: 'Interessado' },
+    ]
+    query.mockResolvedValueOnce({ rows: partesRows })
 
     const result = await processosService.consultarPublico('N1')
 
-    expect(query).toHaveBeenCalledTimes(3)
+    expect(query).toHaveBeenCalledTimes(4)
     expect(result).toEqual({
       capaPublica: { id: 'p1', numero: 'N1', assunto: 'A', status: 'Em instrução' },
       andamentosPublicos: tramitesRows,
       documentosPublicos: docsRows,
+      partesPublicas: partesRows,
     })
   })
 
@@ -718,9 +1094,10 @@ describe('consultarPublico', () => {
     })
     query.mockResolvedValueOnce({ rows: [] })
     query.mockResolvedValueOnce({ rows: [] })
+    query.mockResolvedValueOnce({ rows: [] })
 
     const result = await processosService.consultarPublico(uuid)
-    expect(query).toHaveBeenCalledTimes(3)
+    expect(query).toHaveBeenCalledTimes(4)
     expect(query.mock.calls[0][0]).toEqual(expect.stringContaining('WHERE id = $1'))
     expect(result.capaPublica.id).toBe(uuid)
   })
@@ -1033,3 +1410,5 @@ describe('recusarPendencia', () => {
     })
   })
 })
+})
+

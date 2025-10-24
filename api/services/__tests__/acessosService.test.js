@@ -41,6 +41,16 @@ describe('acessosService', () => {
       expect(query).not.toHaveBeenCalled()
     })
 
+    it('tipo vazio ou undefined lança erro 400 com mensagem específica', async () => {
+      await expect(
+        acessosService.addAcesso('proc-1', { tipo: '', valor: 'x' }),
+      ).rejects.toMatchObject({ code: 400, message: 'tipo inválido' })
+      await expect(
+        acessosService.addAcesso('proc-1', { valor: 'x' }),
+      ).rejects.toMatchObject({ code: 400, message: 'tipo inválido' })
+      expect(query).not.toHaveBeenCalled()
+    })
+
     it('SETOR sem valor lança erro 400', async () => {
       await expect(acessosService.addAcesso('proc-1', { tipo: 'SETOR' })).rejects.toMatchObject({
         code: 400,

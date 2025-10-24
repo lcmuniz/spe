@@ -50,4 +50,23 @@ describe('catalogService', () => {
       expect(result).toEqual(fakeRows)
     })
   })
+
+  describe('listTiposProcesso', () => {
+    it('retorna id e nome de tipos de processo em ordem', async () => {
+      const fakeRows = [
+        { id: 'TP-0001', nome: 'Processo Administrativo' },
+        { id: 'TP-0002', nome: 'Processo Disciplinar' },
+      ]
+      query.mockResolvedValueOnce({ rows: fakeRows })
+
+      const result = await catalogService.listTiposProcesso()
+
+      expect(query).toHaveBeenCalledTimes(1)
+      const [sql, params] = query.mock.calls[0]
+      expect(sql).toEqual(expect.stringContaining('SELECT id, nome FROM tipos_processo'))
+      expect(sql).toEqual(expect.stringContaining('ORDER BY id'))
+      expect(params).toBeUndefined()
+      expect(result).toEqual(fakeRows)
+    })
+  })
 })
