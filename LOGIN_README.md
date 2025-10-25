@@ -6,8 +6,8 @@
 
 A aplicação está configurada para usar o Keycloak como provedor de autenticação. As configurações atuais são:
 
-- **URL do Keycloak**: https://keycloak.tcema.tc.br
-- **Realm**: TCE
+- **URL do Keycloak**: https://keycloak.eficaz.online
+- **Realm**: eficaz
 - **Client ID**: spe
 
 ### Configuração Necessária no Keycloak
@@ -16,7 +16,7 @@ Para que o login funcione corretamente, é necessário criar e configurar o clie
 
 #### 1. Criar o Cliente
 
-No admin console do Keycloak (realm TCE), criar um cliente com as seguintes configurações:
+No admin console do Keycloak (realm), criar um cliente com as seguintes configurações:
 
 ```
 Client ID: spe
@@ -32,20 +32,20 @@ Nas configurações do cliente, definir:
 ```
 Valid Redirect URIs:
 - http://localhost:9000/*
-- https://spe.tcema.tc.br/*
+- https://spe.eficaz.online/*
 
 Valid Post Logout Redirect URIs:
 - http://localhost:9000/*
-- https://spe.tcema.tc.br/*
+- https://spe.eficaz.online/*
 
 Web Origins:
 - http://localhost:9000
-- https://spe.tcema.tc.br
+- https://spe.eficaz.onlie
 ```
 
 #### 3. Configurar Roles
 
-Criar as seguintes roles no realm TCE:
+Criar as seguintes roles no realm:
 
 - `admin` ou `administrador`
 - `servidor`
@@ -114,7 +114,7 @@ Para funcionalidades avançadas, pode-se configurar:
 
 Para desenvolvimento local, certifique-se de que:
 
-1. O Keycloak está acessível em https://keycloak.tcema.tc.br
+1. O Keycloak está acessível em https://keycloak.eficaz.onlie
 2. O cliente `spe` está configurado
 3. Os usuários têm as roles apropriadas
 4. As URLs de callback estão permitidas

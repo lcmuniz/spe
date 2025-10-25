@@ -2,8 +2,8 @@ import { defineBoot } from '#q-app/wrappers'
 import Keycloak from 'keycloak-js'
 
 // Configuração mínima para redirecionar ao login automaticamente
-const KEYCLOAK_URL = import.meta.env.VITE_KEYCLOAK_URL || 'https://keycloak.tcema.tc.br'
-const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || 'TCE'
+const KEYCLOAK_URL = import.meta.env.VITE_KEYCLOAK_URL || 'https://keycloak.eficaz.online'
+const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || 'eficaz'
 const KEYCLOAK_CLIENT_ID = import.meta.env.VITE_KEYCLOAK_CLIENT_ID || 'spe'
 
 const keycloak = new Keycloak({

@@ -153,9 +153,7 @@
                   unelevated
                   label="Salvar"
                   color="primary"
-                  :disable="
-                    !isSameSetor || !dadosChanged || isBaseLegalRequiredOnSave
-                  "
+                  :disable="!isSameSetor || !dadosChanged || isBaseLegalRequiredOnSave"
                   @click="salvarDados"
                 />
               </div>
@@ -1159,8 +1157,8 @@ async function validatePasswordWithKeycloak(senha) {
   try {
     const login = getUsuarioLogin()
     if (!login || !senha) return false
-    const base = keycloak?.authServerUrl || 'https://keycloak.tcema.tc.br'
-    const realm = keycloak?.realm || 'TCE'
+    const base = keycloak?.authServerUrl || 'https://keycloak.eficaz.online'
+    const realm = keycloak?.realm || 'eficaz'
     const clientId = keycloak?.clientId || 'spe'
     const url = `${base}/realms/${realm}/protocol/openid-connect/token`
     const body = new URLSearchParams({
@@ -1334,7 +1332,13 @@ onMounted(async () => {
 })
 
 // Formulário de dados do processo (edição)
-const dadosForm = ref({ assunto: '', tipoId: null, nivelAcesso: 'Público', observacoes: '', baseLegal: '' })
+const dadosForm = ref({
+  assunto: '',
+  tipoId: null,
+  nivelAcesso: 'Público',
+  observacoes: '',
+  baseLegal: '',
+})
 const nivelOptions = ['Público', 'Restrito', 'Sigiloso']
 const tipoOptions = ref([])
 async function loadTipoOptions() {
@@ -1380,9 +1384,7 @@ async function salvarDados() {
     if (String(dadosForm.value.tipoId || '') !== String(p.tipoId || '')) {
       payload.tipoId = dadosForm.value.tipoId || undefined
     }
-    if (
-      String(dadosForm.value.nivelAcesso || 'Público') !== String(p.nivelAcesso || 'Público')
-    ) {
+    if (String(dadosForm.value.nivelAcesso || 'Público') !== String(p.nivelAcesso || 'Público')) {
       payload.nivelAcesso = dadosForm.value.nivelAcesso || 'Público'
     }
     if (String(dadosForm.value.observacoes || '') !== String(p.observacoes || '')) {
@@ -1393,7 +1395,10 @@ async function salvarDados() {
     }
 
     if (isBaseLegalRequiredOnSave.value) {
-      $q.notify({ type: 'warning', message: 'Base legal é obrigatória para nível de acesso não público' })
+      $q.notify({
+        type: 'warning',
+        message: 'Base legal é obrigatória para nível de acesso não público',
+      })
       return
     }
 
