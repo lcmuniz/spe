@@ -154,7 +154,7 @@
                   label="Salvar"
                   color="primary"
                   :disable="
-                    !isSameSetor || !dadosChanged || (isBaseLegalRequired && !dadosForm.baseLegal)
+                    !isSameSetor || !dadosChanged || isBaseLegalRequiredOnSave
                   "
                   @click="salvarDados"
                 />
@@ -176,7 +176,15 @@
             </div>
             <div class="row q-col-gutter-md q-mt-sm">
               <div class="col-12 col-md-3">
-                <q-input v-model="processo.tipo" label="Tipo do Processo" readonly dense />
+                <q-select
+                  v-model="dadosForm.tipoId"
+                  :options="tipoOptions"
+                  label="Tipo do Processo"
+                  dense
+                  emit-value
+                  map-options
+                  :disable="!isSameSetor"
+                />
               </div>
               <div class="col-12 col-md-3">
                 <q-input v-model="processo.atribuidoA" label="Atribuído a" readonly dense />
@@ -759,7 +767,7 @@ import {
   removerAcesso,
   arquivarProcesso,
 } from 'src/services/processosService'
-import { listarSetores } from 'src/services/catalogService'
+import { listarSetores, listarTiposProcesso } from 'src/services/catalogService'
 import { listarUsuarios } from 'src/services/usuariosService'
 import { listarPartesCadastro, criarParteCadastro } from 'src/services/partesCadastroService'
 import ParteCadastroForm from 'src/components/ParteCadastroForm.vue'
@@ -1310,10 +1318,12 @@ onMounted(async () => {
     // Inicializa formulário de edição dos dados do processo
     dadosForm.value = {
       assunto: String(data.assunto || ''),
+      tipoId: data.tipoId || null,
       nivelAcesso: String(data.nivelAcesso || 'Público'),
       observacoes: String(data.observacoes || ''),
       baseLegal: String(data.baseLegal || ''),
     }
+    await loadTipoOptions()
     await loadSetoresOptions()
     await loadDocumentos()
     await loadExternosAguardando()
@@ -1324,36 +1334,76 @@ onMounted(async () => {
 })
 
 // Formulário de dados do processo (edição)
-const dadosForm = ref({ assunto: '', nivelAcesso: 'Público', observacoes: '', baseLegal: '' })
+const dadosForm = ref({ assunto: '', tipoId: null, nivelAcesso: 'Público', observacoes: '', baseLegal: '' })
 const nivelOptions = ['Público', 'Restrito', 'Sigiloso']
-const isBaseLegalRequired = computed(
-  () => String(dadosForm.value.nivelAcesso || 'Público') !== 'Público',
-)
+const tipoOptions = ref([])
+async function loadTipoOptions() {
+  try {
+    const data = await listarTiposProcesso()
+    const arr = Array.isArray(data) ? data : []
+    tipoOptions.value = arr.map((t) => ({ label: t.nome, value: t.id }))
+    if (!dadosForm.value.tipoId) {
+      dadosForm.value.tipoId = tipoOptions.value[0]?.value || null
+    }
+  } catch (e) {
+    console.error('Falha ao carregar tipos de processo', e)
+    tipoOptions.value = []
+  }
+}
+const isBaseLegalRequiredOnSave = computed(() => {
+  const p = processo.value || {}
+  const nivelChanged =
+    String(dadosForm.value.nivelAcesso || 'Público') !== String(p.nivelAcesso || 'Público')
+  const novoNivel = String(dadosForm.value.nivelAcesso || 'Público')
+  return nivelChanged && novoNivel !== 'Público' && !String(dadosForm.value.baseLegal || '').trim()
+})
 const dadosChanged = computed(() => {
   const p = processo.value || {}
   return (
     String(dadosForm.value.assunto || '') !== String(p.assunto || '') ||
     String(dadosForm.value.nivelAcesso || 'Público') !== String(p.nivelAcesso || 'Público') ||
     String(dadosForm.value.observacoes || '') !== String(p.observacoes || '') ||
-    String(dadosForm.value.baseLegal || '') !== String(p.baseLegal || '')
+    String(dadosForm.value.baseLegal || '') !== String(p.baseLegal || '') ||
+    String(dadosForm.value.tipoId || '') !== String(p.tipoId || '')
   )
 })
 
 async function salvarDados() {
   try {
     const { id } = route.params
-    const payload = {
-      assunto: dadosForm.value.assunto || '',
-      nivelAcesso: dadosForm.value.nivelAcesso || 'Público',
-      observacoes: dadosForm.value.observacoes || '',
-      baseLegal: isBaseLegalRequired.value ? dadosForm.value.baseLegal || '' : undefined,
+    const p = processo.value || {}
+    const payload = {}
+
+    if (String(dadosForm.value.assunto || '') !== String(p.assunto || '')) {
+      payload.assunto = dadosForm.value.assunto || ''
     }
+    if (String(dadosForm.value.tipoId || '') !== String(p.tipoId || '')) {
+      payload.tipoId = dadosForm.value.tipoId || undefined
+    }
+    if (
+      String(dadosForm.value.nivelAcesso || 'Público') !== String(p.nivelAcesso || 'Público')
+    ) {
+      payload.nivelAcesso = dadosForm.value.nivelAcesso || 'Público'
+    }
+    if (String(dadosForm.value.observacoes || '') !== String(p.observacoes || '')) {
+      payload.observacoes = dadosForm.value.observacoes || ''
+    }
+    if (String(dadosForm.value.baseLegal || '') !== String(p.baseLegal || '')) {
+      payload.baseLegal = dadosForm.value.baseLegal || ''
+    }
+
+    if (isBaseLegalRequiredOnSave.value) {
+      $q.notify({ type: 'warning', message: 'Base legal é obrigatória para nível de acesso não público' })
+      return
+    }
+
     const updated = await atualizarDados(id, payload)
     const nivel = String((updated?.nivelAcesso ?? payload.nivelAcesso) || 'Público')
     if (updated) {
       processo.value = updated
       dadosForm.value = {
         assunto: String(updated.assunto || ''),
+        tipoId: updated.tipoId || null,
         nivelAcesso: String(updated.nivelAcesso || 'Público'),
         observacoes: String(updated.observacoes || ''),
         baseLegal: String(updated.baseLegal || ''),
@@ -1406,6 +1456,7 @@ function cancelarDados() {
   const p = processo.value || {}
   dadosForm.value = {
     assunto: String(p.assunto || ''),
+    tipoId: p.tipoId || null,
     nivelAcesso: String(p.nivelAcesso || 'Público'),
     observacoes: String(p.observacoes || ''),
     baseLegal: String(p.baseLegal || ''),

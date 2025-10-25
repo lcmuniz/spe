@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "description": "Sistema de Processo Eletrônico",
   "productName": "SPE",
-  "author": "Luiz Carlos Melo Muniz <lcmuniz@tcema.tc.br>",
+  "author": "Luiz Carlos Melo Muniz <lcmuniz@eficaztech.com>",
   "type": "module",
   "private": true,
   "scripts": {

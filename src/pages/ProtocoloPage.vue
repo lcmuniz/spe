@@ -11,7 +11,7 @@
           <div class="row q-col-gutter-md">
             <div class="col-12 col-md-3">
               <q-select
-                v-model="form.tipo"
+                v-model="form.tipoId"
                 :options="tipoOptions"
                 label="Tipo"
                 clearable
@@ -163,7 +163,7 @@ function getUsuarioLogin() {
 // Form principal
 const form = ref({
   assunto: null,
-  tipo: 'Processo Administrativo',
+  tipoId: null,
   nivelAcesso: 'Público',
   baseLegal: '',
   observacoes: '',
@@ -188,7 +188,11 @@ const tipoOptions = ref([])
 async function loadTipoOptions() {
   try {
     const data = await listarTiposProcesso()
-    tipoOptions.value = (Array.isArray(data) ? data : []).map((n) => ({ label: n, value: n }))
+    const arr = Array.isArray(data) ? data : []
+    tipoOptions.value = arr.map((t) => ({ label: t.nome, value: t.id }))
+    if (!form.value.tipoId) {
+      form.value.tipoId = tipoOptions.value[0]?.value || null
+    }
   } catch (e) {
     console.error('Falha ao carregar tipos de processo', e)
     tipoOptions.value = []
@@ -356,7 +360,7 @@ async function salvarCriar() {
 
     const proc = await criarProcesso({
       assunto: form.value.assunto,
-      tipo: form.value.tipo,
+      tipoId: form.value.tipoId,
       nivelAcesso: normalizaNivelAcesso(form.value.nivelAcesso),
       observacoes: form.value.observacoes || '',
       baseLegal: form.value.baseLegal || '',

@@ -83,7 +83,7 @@
         </q-card-section>
         <q-card-section class="q-gutter-md">
           <q-select
-            v-model="novoForm.tipo"
+            v-model="novoForm.tipoId"
             :options="tipoOptions"
             label="Tipo do processo"
             emit-value
@@ -143,7 +143,7 @@ const columns = [
 const novoDialogOpen = ref(false)
 const novoLoading = ref(false)
 const tipoOptions = ref([])
-const novoForm = reactive({ tipo: 'Processo', assunto: '', observacoes: '' })
+const novoForm = reactive({ tipoId: null, assunto: '', observacoes: '' })
 
 onMounted(async () => {
   externo.initialize()
@@ -193,59 +193,60 @@ async function loadTipoOptions() {
   try {
     const data = await listarTiposProcesso()
     const arr = Array.isArray(data) ? data : []
-    tipoOptions.value = arr.map((n) => ({ label: n, value: n }))
-    const valores = new Set(arr)
-    if (!valores.has(novoForm.tipo)) {
-      novoForm.tipo = arr[0] || 'Processo'
+    tipoOptions.value = arr.map((t) => ({ label: t.nome, value: t.id }))
+    const ids = new Set(arr.map((t) => t.id))
+    const firstId = arr.length > 0 ? arr[0].id : null
+    if (!ids.has(novoForm.tipoId)) {
+      novoForm.tipoId = firstId
     }
-  } catch (e) {
+   } catch (e) {
     console.error('Falha ao carregar tipos de processo', e)
-    tipoOptions.value = [{ label: 'Processo', value: 'Processo' }]
-    novoForm.tipo = 'Processo'
+    tipoOptions.value = []
+    novoForm.tipoId = null
   }
 }
 
-function novoOnReset() {
-  novoForm.tipo = 'Processo'
+ function novoOnReset() {
+  novoForm.tipoId = null
   novoForm.assunto = ''
   novoForm.observacoes = ''
-}
+ }
 
-async function novoSubmit() {
-  if (!novoForm.assunto) {
-    $q.notify({ type: 'negative', message: 'Assunto é obrigatório' })
-    return
-  }
-  if (!novoForm.tipo) {
+ async function novoSubmit() {
+   if (!novoForm.assunto) {
+     $q.notify({ type: 'negative', message: 'Assunto é obrigatório' })
+     return
+   }
+  if (!novoForm.tipoId) {
     $q.notify({ type: 'negative', message: 'Tipo é obrigatório' })
     return
   }
   novoLoading.value = true
   try {
     const created = await criarProcessoExterno(
-      { assunto: novoForm.assunto, tipo: novoForm.tipo, observacoes: novoForm.observacoes },
+      { assunto: novoForm.assunto, tipoId: novoForm.tipoId, observacoes: novoForm.observacoes },
       { cpf: externo.cpf, chave: externo.chave },
     )
-    $q.notify({
-      type: 'positive',
-      message: `Processo ${created.numero} criado e pendente no PROTOCOLO.`,
-    })
-    novoDialogOpen.value = false
-    novoOnReset()
-    await carregar()
-  } catch (e) {
-    $q.notify({
-      type: 'negative',
-      message: e?.response?.data?.error || e.message || 'Falha ao criar processo',
-    })
-  } finally {
-    novoLoading.value = false
-  }
-}
+     $q.notify({
+       type: 'positive',
+       message: `Processo ${created.numero} criado e pendente no PROTOCOLO.`,
+     })
+     novoDialogOpen.value = false
+     novoOnReset()
+     await carregar()
+   } catch (e) {
+     $q.notify({
+       type: 'negative',
+       message: e?.response?.data?.error || e.message || 'Falha ao criar processo',
+     })
+   } finally {
+     novoLoading.value = false
+   }
+ }
 
-async function iniciarNovoProcesso() {
-  novoOnReset()
-  await loadTipoOptions()
-  novoDialogOpen.value = true
-}
+ async function iniciarNovoProcesso() {
+   novoOnReset()
+   await loadTipoOptions()
+   novoDialogOpen.value = true
+ }
 </script>
