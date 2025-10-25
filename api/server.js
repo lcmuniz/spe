@@ -20,7 +20,12 @@ const app = express()
 const PORT = 3001
 
 // Ajusta CORS para permitir o frontend em 9000 e 9002
-app.use(cors({ origin: ['http://localhost:9000', 'http://localhost:9001', 'http://localhost:9002'], credentials: false }))
+app.use(
+  cors({
+    origin: ['http://localhost:9000', 'http://localhost:9001', 'http://localhost:9002'],
+    credentials: false,
+  }),
+)
 app.use(bodyParser.json({ limit: '10mb' }))
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }))
 
@@ -111,12 +116,6 @@ app.delete('/api/processos/:id/acessos/:acessoId', async (req, res) => {
   }
 })
 
-
-
-
-
-
-
 // Helpers de filtro
 // GET /api/setores
 app.get('/api/setores', async (req, res) => {
@@ -162,8 +161,7 @@ app.get('/api/catalog/assuntos', async (req, res) => {
 app.get('/api/catalog/tipos-processo', async (req, res) => {
   try {
     const tipos = await catalogService.listTiposProcesso()
-    // Mantém contrato atual da API: array de strings
-    res.json(tipos.map((t) => t.nome))
+    res.json(tipos)
   } catch (e) {
     console.error('Erro em GET /api/catalog/tipos-processo', e)
     res.status(500).json({ error: 'Erro ao listar tipos de processo' })
@@ -214,7 +212,10 @@ app.post('/api/partes-cadastro', async (req, res) => {
 
 app.put('/api/partes-cadastro/:id', async (req, res) => {
   try {
-    const updated = await partesCadastroService.atualizarParteCadastro(req.params.id, req.body || {})
+    const updated = await partesCadastroService.atualizarParteCadastro(
+      req.params.id,
+      req.body || {},
+    )
     if (!updated) return res.status(404).json({ error: 'Registro não encontrado' })
     await auditLog(req, {
       acao: 'cadastro_partes.atualizar',
@@ -243,7 +244,8 @@ app.delete('/api/partes-cadastro/:id', async (req, res) => {
     res.json({ ok: true })
   } catch (e) {
     console.error('Erro em DELETE /api/partes-cadastro/:id', e)
-    const status = typeof e.code === 'number' ? e.code : typeof e.status === 'number' ? e.status : 500
+    const status =
+      typeof e.code === 'number' ? e.code : typeof e.status === 'number' ? e.status : 500
     res.status(status).json({ error: e.message || 'Erro ao remover cadastro de parte' })
   }
 })
@@ -397,6 +399,7 @@ app.post('/api/processos', async (req, res) => {
     const {
       assunto,
       tipo,
+      tipoId,
       nivelAcesso,
       baseLegal,
       observacoes,
@@ -409,6 +412,7 @@ app.post('/api/processos', async (req, res) => {
     const processoView = await processosService.createProcesso({
       assunto,
       tipo,
+      tipoId,
       nivelAcesso,
       baseLegal,
       observacoes,
@@ -453,9 +457,9 @@ app.get('/api/processos/:id', async (req, res) => {
 app.post('/api/processos/:id/dados', async (req, res) => {
   try {
     const { id } = req.params
-    const { assunto, nivelAcesso, observacoes, baseLegal } = req.body
+    const { assunto, nivelAcesso, observacoes, baseLegal, tipoId } = req.body
 
-    // Usa o service para obter o estado atual
+    // Carrega estado atual para validar e auditar
     const atual = await processosService.getProcessoById(id)
     if (!atual) return res.status(404).json({ error: 'Processo não encontrado' })
 
@@ -463,12 +467,13 @@ app.post('/api/processos/:id/dados', async (req, res) => {
     const atualBaseLegal = atual.baseLegal
     const novaBaseLegal = baseLegal !== undefined ? baseLegal : atualBaseLegal
 
-    // Atualiza via service
+    // Atualiza via service, incluindo tipoId
     const updated = await processosService.updateDados(id, {
       assunto,
       nivelAcesso,
       observacoes,
       baseLegal,
+      tipoId,
     })
 
     // Auditoria
@@ -482,6 +487,7 @@ app.post('/api/processos/:id/dados', async (req, res) => {
         nivelAcesso,
         observacoes,
         baseLegal: novaBaseLegal,
+        tipoId,
         anterior: { nivelAcesso: atualNivel, baseLegal: atualBaseLegal },
       },
     })
@@ -509,7 +515,14 @@ app.post('/api/processos/:id/partes', async (req, res) => {
       usuarioLogin: executadoPor || usuario || null,
       entidade: 'processo',
       entidadeId: id,
-      detalhes: { parteId: parte.id, cadastroParteId: parte?.cadastroParteId || parteId || null, tipo, nome, documento, papel },
+      detalhes: {
+        parteId: parte.id,
+        cadastroParteId: parte?.cadastroParteId || parteId || null,
+        tipo,
+        nome,
+        documento,
+        papel,
+      },
     })
 
     res.status(201).json({ ok: true, parte })
@@ -599,9 +612,7 @@ app.post('/api/processos/:id/documentos/seed', async (req, res) => {
   } catch (e) {
     console.error('Erro em POST /api/processos/:id/documentos/seed', e)
     const status = e.code && Number(e.code) ? Number(e.code) : 500
-    res
-      .status(status)
-      .json({ error: e.message || 'Erro ao criar documentos iniciais do processo' })
+    res.status(status).json({ error: e.message || 'Erro ao criar documentos iniciais do processo' })
   }
 })
 
@@ -802,7 +813,10 @@ app.get('/api/public/consultas/:valor', async (req, res) => {
     res.json(result)
   } catch (e) {
     console.error('Erro em GET /api/public/consultas/:valor', e)
-    const status = e.code || 500
+    const status =
+      Number.isInteger(Number(e.code)) && Number(e.code) >= 100 && Number(e.code) <= 599
+        ? Number(e.code)
+        : 500
     const msg = status === 500 ? 'Erro ao consultar processo público' : e.message
     res.status(status).json({ error: msg })
   }
@@ -818,7 +832,10 @@ app.get('/api/public/documentos/:id/pdf', async (req, res) => {
     res.json(result)
   } catch (e) {
     console.error('Erro em GET /api/public/documentos/:id/pdf', e)
-    const status = e.code || 500
+    const status =
+      Number.isInteger(Number(e.code)) && Number(e.code) >= 100 && Number(e.code) <= 599
+        ? Number(e.code)
+        : 500
     const msg = status === 500 ? 'Falha ao gerar PDF do documento' : e.message
     res.status(status).json({ error: msg })
   }
@@ -830,22 +847,28 @@ app.get('/api/public/externo/processos', async (req, res) => {
     const rows = await externoService.listProcessosPorParteCredencial(cpf, chave)
     res.json(rows)
   } catch (err) {
-    const code = err.code || 500
+    const code =
+      Number.isInteger(Number(err.code)) && Number(err.code) >= 100 && Number(err.code) <= 599
+        ? Number(err.code)
+        : 500
     res.status(code).json({ error: err.message || 'Erro interno' })
   }
 })
 
 app.post('/api/public/externo/processos', async (req, res) => {
   try {
-    const { cpf, chave, assunto, tipo, observacoes } = req.body || {}
+    const { cpf, chave, assunto, tipoId, observacoes } = req.body || {}
     const created = await externoService.criarProcessoExterno(
       String(cpf || ''),
       String(chave || ''),
-      { assunto: String(assunto || ''), tipo: String(tipo || ''), observacoes: String(observacoes || '') }
+      { assunto: String(assunto || ''), tipoId, observacoes: String(observacoes || '') },
     )
     res.status(201).json(created)
   } catch (err) {
-    const code = err.code || 500
+    const code =
+      Number.isInteger(Number(err.code)) && Number(err.code) >= 100 && Number(err.code) <= 599
+        ? Number(err.code)
+        : 500
     res.status(code).json({ error: err.message || 'Erro interno' })
   }
 })
@@ -858,7 +881,10 @@ app.get('/api/public/externo/processos/:numero/documentos', async (req, res) => 
     const rows = await externoService.listarDocumentosExternosTemporarios(numero, cpf, chave)
     res.json(rows)
   } catch (err) {
-    const code = err.code || 500
+    const code =
+      Number.isInteger(Number(err.code)) && Number(err.code) >= 100 && Number(err.code) <= 599
+        ? Number(err.code)
+        : 500
     res.status(code).json({ error: err.message || 'Erro interno' })
   }
 })
@@ -869,16 +895,25 @@ app.post('/api/public/externo/processos/:numero/documentos', async (req, res) =>
     const cpf = String(req.query.cpf || '')
     const chave = String(req.query.chave || '')
     const { fileName, contentBase64, titulo } = req.body
-    const doc = await externoService.anexarDocumentoExternoTemporario(numero, cpf, chave, fileName, contentBase64, titulo)
+    const doc = await externoService.anexarDocumentoExternoTemporario(
+      numero,
+      cpf,
+      chave,
+      fileName,
+      contentBase64,
+      titulo,
+    )
     res.json(doc)
   } catch (err) {
-    const code = err.code || 500
+    const code =
+      Number.isInteger(Number(err.code)) && Number(err.code) >= 100 && Number(err.code) <= 599
+        ? Number(err.code)
+        : 500
     res.status(code).json({ error: err.message || 'Erro interno' })
   }
 })
 
 // Inicialização do servidor movida para o final para evitar duplicidade
-
 
 app.get('/api/processos/:id/tramites', async (req, res) => {
   try {

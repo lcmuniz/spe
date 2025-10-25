@@ -16,7 +16,7 @@ async function listProcessosPorParteCredencial(cpf, chave) {
             p.numero,
             p.assunto,
             p.status,
-            p.tipo,
+            COALESCE(tp.nome, p.tipo_id) AS tipo,
             p.nivel_acesso AS "nivelAcesso",
             p.setor_atual AS setor,
             p.atribuido_usuario AS "atribuidoA",
@@ -25,6 +25,7 @@ async function listProcessosPorParteCredencial(cpf, chave) {
             pp.papel AS "meuPapel",
             cp.nome AS "meuNome"
        FROM processos p
+       LEFT JOIN tipos_processo tp ON tp.id = p.tipo_id
        JOIN processo_partes pp ON pp.processo_id = p.id
        JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
       WHERE cp.documento = $1
@@ -236,7 +237,7 @@ async function rejeitarDocumentoTemporario(processoId, tempId, motivo) {
   return { ok: true }
 }
 
-async function criarProcessoExterno(cpf, chave, { assunto, tipo, observacoes }) {
+async function criarProcessoExterno(cpf, chave, { assunto, tipoId, observacoes }) {
   const doc = String(cpf || '').trim()
   const key = String(chave || '').trim()
   if (!doc || !key) {
@@ -263,7 +264,8 @@ async function criarProcessoExterno(cpf, chave, { assunto, tipo, observacoes }) 
 
   const processoView = await processosService.createProcesso({
     assunto,
-    tipo: tipo || 'Processo',
+    tipo: 'Processo',
+    tipoId: tipoId || null,
     nivelAcesso: 'Público',
     baseLegal: null,
     observacoes: observacoes || '',

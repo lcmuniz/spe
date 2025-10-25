@@ -35,7 +35,7 @@ async function initDb() {
       id UUID PRIMARY KEY,
       numero VARCHAR(50) UNIQUE NOT NULL,
       assunto VARCHAR(255) NOT NULL,
-      tipo VARCHAR(100),
+      tipo_id VARCHAR(50),
       nivel_acesso VARCHAR(50) NOT NULL,
       base_legal TEXT,
       observacoes TEXT,
@@ -50,6 +50,17 @@ async function initDb() {
       criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `)
+
+  try {
+    await pool.query(`
+      ALTER TABLE processos
+        DROP CONSTRAINT IF EXISTS processos_tipo_id_fkey,
+        ADD CONSTRAINT processos_tipo_id_fkey FOREIGN KEY (tipo_id) REFERENCES tipos_processo(id);
+    `)
+  } catch (_e) {
+    // ignora se não aplicável
+  }
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_processos_tipo_id ON processos(tipo_id);`)
 
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_processos_assunto ON processos(assunto);
@@ -162,26 +173,6 @@ async function initDb() {
     ON CONFLICT (sigla) DO NOTHING;
   `)
 
-  // Tabela de assuntos (catálogo)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS assuntos (
-      id VARCHAR(20) PRIMARY KEY,
-      nome VARCHAR(255) NOT NULL
-    );
-  `)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_assuntos_nome ON assuntos(nome);`)
-
-  // Seed de assuntos (idempotente)
-  await pool.query(`
-    INSERT INTO assuntos (id, nome) VALUES
-      ('ASS-0001','Despacho'),
-      ('ASS-0002','Memorando'),
-      ('ASS-0003','Ofício'),
-      ('ASS-0004','Ata'),
-      ('ASS-0005','Requerimento')
-    ON CONFLICT (id) DO NOTHING;
-  `)
-
   // Tipos de processo (catálogo)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tipos_processo (
@@ -258,35 +249,9 @@ async function initDb() {
       entidade VARCHAR(100),
       entidade_id VARCHAR(100),
       detalhes JSONB,
-      ip VARCHAR(100),
-      user_agent VARCHAR(255),
-      rota VARCHAR(255)
+      setor VARCHAR(100)
     );
   `)
-
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_data ON auditoria(data);`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_acao ON auditoria(acao);`)
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_login);`)
-
-  // Seed inicial se tabela estiver vazia
-  const { rows: ucount } = await pool.query(`SELECT COUNT(*)::int AS count FROM usuarios`)
-  if ((ucount[0]?.count || 0) === 0) {
-    await pool.query(`
-      INSERT INTO usuarios (login, setor, nome, cargo) VALUES
-        ('usuario1', 'PROTOCOLO', 'Usuário 1', 'Agente Administrativo'),
-        ('usuario2', 'PROTOCOLO', 'Usuário 2', 'Agente Administrativo'),
-        ('usuario3', 'PROTOCOLO', 'Usuário 3', 'Agente Administrativo'),
-        ('gabinete1', 'GABINETE', 'Gabinete 1', 'Chefe de Gabinete'),
-        ('gabinete2', 'GABINETE', 'Gabinete 2', 'Chefe de Gabinete'),
-        ('juridico1', 'JURÍDICO', 'Jurídico 1', 'Analista Jurídico'),
-        ('juridico2', 'JURÍDICO', 'Jurídico 2', 'Analista Jurídico'),
-        ('ti1', 'TI', 'TI 1', 'Analista de TI'),
-        ('ti2', 'TI', 'Analista de TI'),
-        ('financeiro1', 'FINANCEIRO', 'Financeiro 1', 'Analista Financeiro'),
-        ('financeiro2', 'FINANCEIRO', 'Financeiro 2', 'Analista Financeiro'),
-        ('system', 'PROTOCOLO', 'Sistema', 'Sistema')
-    `)
-  }
 }
 
 function query(text, params) {

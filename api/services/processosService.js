@@ -8,14 +8,8 @@ function genNumero() {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(Math.floor(Math.random() * 1000), 3)}`
 }
 
-async function getProcessoById(id) {
+async function listarPartesDoProcesso(processoId) {
   const { rows } = await query(
-    `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao"
-     FROM processos WHERE id = $1`,
-    [id],
-  )
-  if (rows.length === 0) return null
-  const { rows: partes } = await query(
     `SELECT pp.id,
             cp.tipo,
             cp.nome,
@@ -26,14 +20,42 @@ async function getProcessoById(id) {
        LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
       WHERE pp.processo_id = $1
       ORDER BY pp.id`,
-    [id],
+    [processoId],
   )
+  return rows
+}
+
+async function getProcessoById(id) {
+  const queryText = `
+    SELECT p.id,
+           p.numero,
+           p.assunto,
+           COALESCE(tp.nome, p.tipo_id) AS "tipo",
+           p.tipo_id AS "tipoId",
+           p.nivel_acesso AS "nivelAcesso",
+           p.base_legal AS "baseLegal",
+           p.observacoes,
+           p.status,
+           p.prioridade,
+           p.prazo,
+           p.setor_atual AS setor,
+           p.atribuido_usuario AS "atribuidoA",
+           p.criado_em AS "criadoEm",
+           COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
+    FROM processos p
+    LEFT JOIN tipos_processo tp ON tp.id = p.tipo_id
+    WHERE p.id = $1
+  `
+  const { rows } = await query(queryText, [id])
+  if (!rows.length) return null
+  const partes = await listarPartesDoProcesso(id)
   return { ...rows[0], partes }
 }
 
 async function createProcesso({
   assunto,
   tipo,
+  tipoId,
   nivelAcesso,
   baseLegal,
   observacoes,
@@ -54,17 +76,17 @@ async function createProcesso({
 
   await beginTransaction()
   await query(
-    `INSERT INTO processos (id, numero, assunto, tipo, nivel_acesso, base_legal, observacoes, atribuido_usuario)
+    `INSERT INTO processos (id, numero, assunto, nivel_acesso, base_legal, observacoes, atribuido_usuario, tipo_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       id,
       numero,
       assunto,
-      tipo || 'Processo',
       nivelAcesso || 'Público',
       baseLegal || null,
       observacoes || '',
       criadorLogin || null,
+      tipoId || null,
     ],
   )
 
@@ -81,12 +103,7 @@ async function createProcesso({
       await query(
         `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
          VALUES ($1, $2, $3, $4)`,
-        [
-          parteId,
-          id,
-          parte.papel || null,
-          parte.parteId,
-        ],
+        [parteId, id, parte.papel || null, parte.parteId],
       )
     } else {
       // Inserção manual: cria cadastro mínimo e vincula
@@ -99,12 +116,7 @@ async function createProcesso({
       await query(
         `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
          VALUES ($1, $2, $3, $4)`,
-        [
-          parteId,
-          id,
-          parte.papel || null,
-          cadId,
-        ],
+        [parteId, id, parte.papel || null, cadId],
       )
     }
   }
@@ -116,25 +128,13 @@ async function createProcesso({
   }
 
   // Andamento inicial: origem = destino = setor atual, motivo fixo
-  const { rows: setorRows } = await query(
-    `SELECT setor_atual FROM processos WHERE id = $1`,
-    [id],
-  )
+  const { rows: setorRows } = await query(`SELECT setor_atual FROM processos WHERE id = $1`, [id])
   const setorAtual = setorRows?.[0]?.setor_atual || 'PROTOCOLO'
   const tramiteId = uuidv4()
   await query(
     `INSERT INTO tramites (id, processo_id, origem_setor, destino_setor, motivo, prioridade, prazo, origem_usuario)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [
-      tramiteId,
-      id,
-      setorAtual,
-      setorAtual,
-      'Andamento inicial',
-      null,
-      null,
-      criadorLogin || null,
-    ],
+    [tramiteId, id, setorAtual, setorAtual, 'Andamento inicial', null, null, criadorLogin || null],
   )
 
   await commitTransaction()
@@ -166,39 +166,62 @@ async function createProcesso({
   return processoView
 }
 
-async function updateDados(id, { assunto, nivelAcesso, observacoes, baseLegal }) {
-  const { rows: procRows } = await query(
-    `SELECT nivel_acesso, base_legal FROM processos WHERE id = $1`,
-    [id],
-  )
-  if (procRows.length === 0) {
+async function updateDados(id, { assunto, nivelAcesso, observacoes, baseLegal, tipoId }) {
+  const atual = await getProcessoById(id)
+  if (!atual) {
     const err = new Error('Processo não encontrado')
-    err.code = 404
+    err.status = 404
     throw err
   }
-  const atualNivel = procRows[0].nivel_acesso
-  const atualBaseLegal = procRows[0].base_legal
-  const novoNivel = nivelAcesso || atualNivel
-  const novaBaseLegal = baseLegal !== undefined ? baseLegal : atualBaseLegal
 
-  if (novoNivel !== 'Público' && !novaBaseLegal) {
-    const err = new Error('Base legal é obrigatória para acesso restrito/sigiloso')
-    err.code = 400
+  if (nivelAcesso && nivelAcesso !== 'Público' && !baseLegal) {
+    const err = new Error('Base legal obrigatória para nível de acesso não público')
+    err.status = 400
     throw err
   }
+
+  const novaBaseLegal = nivelAcesso === 'Público' ? null : baseLegal
+
   await query(
     `UPDATE processos
        SET assunto = COALESCE($2, assunto),
            nivel_acesso = COALESCE($3, nivel_acesso),
            observacoes = COALESCE($4, observacoes),
-           base_legal = COALESCE($5, base_legal)
+           base_legal = COALESCE($5, base_legal),
+           tipo_id = COALESCE($6, tipo_id)
      WHERE id = $1`,
-    [id, assunto || null, nivelAcesso || null, observacoes || null, novaBaseLegal || null],
+    [
+      id,
+      assunto ?? null,
+      nivelAcesso ?? null,
+      observacoes ?? null,
+      novaBaseLegal ?? null,
+      tipoId ?? null,
+    ],
   )
+
   const { rows } = await query(
-    `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao" FROM processos WHERE id = $1`,
+    `SELECT p.id,
+            p.numero,
+            p.assunto,
+            COALESCE(tp.nome, p.tipo_id) AS "tipo",
+            p.tipo_id AS "tipoId",
+            p.nivel_acesso AS "nivelAcesso",
+            p.base_legal AS "baseLegal",
+            p.observacoes,
+            p.status,
+            p.prioridade,
+            p.prazo,
+            p.setor_atual AS setor,
+            p.atribuido_usuario AS "atribuidoA",
+            p.criado_em AS "criadoEm",
+            COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
+       FROM processos p
+       LEFT JOIN tipos_processo tp ON tp.id = p.tipo_id
+      WHERE p.id = $1`,
     [id],
   )
+
   return rows[0]
 }
 
@@ -213,9 +236,10 @@ async function atribuir(id, { usuario, executadoPor }) {
     err.code = 400
     throw err
   }
-  const proc = await query(`SELECT setor_atual, atribuido_usuario, nivel_acesso FROM processos WHERE id = $1`, [
-    id,
-  ])
+  const proc = await query(
+    `SELECT setor_atual, atribuido_usuario, nivel_acesso FROM processos WHERE id = $1`,
+    [id],
+  )
   if (proc.rows.length === 0) {
     const err = new Error('Processo não encontrado')
     err.code = 404
@@ -456,7 +480,7 @@ async function listProcessos(q = {}) {
         p.id,
         p.numero,
         p.assunto,
-        p.tipo AS "tipo",
+        COALESCE(tp.nome, p.tipo_id) AS "tipo",
         p.status,
         p.prioridade,
         p.prazo AS "prazo",
@@ -478,11 +502,12 @@ async function listProcessos(q = {}) {
           ORDER BY pp.id LIMIT 1
         ) AS interessado
       FROM processos p
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY p.criado_em DESC
-      LIMIT $${params.length + 1}
-      OFFSET $${params.length + 2}
-    `
+     LEFT JOIN tipos_processo tp ON tp.id = p.tipo_id
+     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+     ORDER BY p.criado_em DESC
+     LIMIT $${params.length + 1}
+     OFFSET $${params.length + 2}
+   `
   const { rows } = await query(itemsSql, [...params, pageSize, offset])
 
   return { total, page, pageSize, items: rows }
@@ -496,21 +521,23 @@ async function addParte(processoId, { parteId, tipo, nome, documento, papel }) {
       err.code = 404
       throw err
     }
-    const cad = await query(`SELECT id, tipo, nome, documento FROM cadastro_partes WHERE id = $1`, [parteId])
+    const cad = await query(`SELECT id, tipo, nome, documento FROM cadastro_partes WHERE id = $1`, [
+      parteId,
+    ])
     if (cad.rows.length === 0) {
       const err = new Error('Parte de cadastro não encontrada')
       err.code = 404
       throw err
     }
-    const { id: cadId, tipo: cadTipo, nome: cadNome, documento: cadDoc } = cad.rows[0]
+    const { id: cadId } = cad.rows[0]
     const procParteId = uuidv4()
     await query(
-    `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
+      `INSERT INTO processo_partes (id, processo_id, papel, cadastro_parte_id)
      VALUES ($1, $2, $3, $4)`,
-    [procParteId, processoId, papel || null, cadId],
-  )
-  const { rows } = await query(
-    `SELECT pp.id,
+      [procParteId, processoId, papel || null, cadId],
+    )
+    const { rows } = await query(
+      `SELECT pp.id,
             cp.tipo,
             cp.nome,
             cp.documento,
@@ -519,10 +546,10 @@ async function addParte(processoId, { parteId, tipo, nome, documento, papel }) {
        FROM processo_partes pp
        LEFT JOIN cadastro_partes cp ON cp.id = pp.cadastro_parte_id
       WHERE pp.id = $1`,
-    [procParteId],
-  )
-  return rows[0]
-}
+      [procParteId],
+    )
+    return rows[0]
+  }
 
   // Inserção manual: cria cadastro mínimo e vincula
   if (!nome) {
@@ -602,17 +629,21 @@ async function consultarPublico(valorRaw, cpf, chave) {
   let processo
   if (!isUuid) {
     const { rows } = await query(
-      `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
-         FROM processos p
-        WHERE numero = $1`,
+      `SELECT p.id, p.numero, p.assunto, COALESCE(tp.nome, p.tipo_id) AS "tipo", p.nivel_acesso AS "nivelAcesso", p.base_legal AS "baseLegal", p.observacoes, p.status, p.prioridade, p.prazo, p.setor_atual AS setor, p.atribuido_usuario AS "atribuidoA", p.criado_em AS "criadoEm", COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
+             FROM processos p
+             LEFT JOIN tipos_processo tp ON tp.id = p.tipo_id
+            /* WHERE numero = $1 */
+            WHERE p.numero = $1`,
       [valor],
     )
     processo = rows[0]
   } else {
     const { rows } = await query(
-      `SELECT id, numero, assunto, tipo, nivel_acesso AS "nivelAcesso", base_legal AS "baseLegal", observacoes, status, prioridade, prazo, setor_atual AS setor, atribuido_usuario AS "atribuidoA", criado_em AS "criadoEm", COALESCE((SELECT MAX(data) FROM tramites WHERE processo_id = $1), criado_em) AS "ultimaMovimentacao"
-         FROM processos
-        WHERE id = $1`,
+      `SELECT p.id, p.numero, p.assunto, COALESCE(tp.nome, p.tipo_id) AS "tipo", p.nivel_acesso AS "nivelAcesso", p.base_legal AS "baseLegal", p.observacoes, p.status, p.prioridade, p.prazo, p.setor_atual AS setor, p.atribuido_usuario AS "atribuidoA", p.criado_em AS "criadoEm", COALESCE((SELECT MAX(t.data) FROM tramites t WHERE t.processo_id = p.id), p.criado_em) AS "ultimaMovimentacao"
+        FROM processos p
+        LEFT JOIN tipos_processo tp ON tp.id = p.tipo_id
+       /* WHERE id = $1 */
+       WHERE p.id = $1`,
       [valor],
     )
     processo = rows[0]
