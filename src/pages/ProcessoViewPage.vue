@@ -1157,7 +1157,7 @@ async function validatePasswordWithKeycloak(senha) {
   try {
     const login = getUsuarioLogin()
     if (!login || !senha) return false
-    const base = keycloak?.authServerUrl || 'https://keycloak.eficaz.online'
+    const base = keycloak?.authServerUrl || 'http://localhost:8080'
     const realm = keycloak?.realm || 'eficaz'
     const clientId = keycloak?.clientId || 'spe'
     const url = `${base}/realms/${realm}/protocol/openid-connect/token`
