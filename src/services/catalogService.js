@@ -9,3 +9,8 @@ export async function listarTiposProcesso () {
   const { data } = await api.get('/catalog/tipos-processo')
   return data
 }
+
+export async function listarTiposDocumento () {
+  const { data } = await api.get('/catalog/tipos-documento')
+  return data
+}

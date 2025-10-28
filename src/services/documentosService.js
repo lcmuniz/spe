@@ -32,8 +32,8 @@ export async function uploadConteudo(id, fileName, contentBase64, autorLogin) {
   return data
 }
 
-export async function createDocumento({ titulo, tipo, modo, autorLogin, autorNome }) {
-  const { data } = await api.post('/documentos', { titulo, tipo, modo, autorLogin, autorNome })
+export async function createDocumento({ titulo, tipoId, modo, autorLogin, autorNome }) {
+  const { data } = await api.post('/documentos', { titulo, tipoId, modo, autorLogin, autorNome })
   return data
 }
 
@@ -52,5 +52,11 @@ export async function assinarDocumento(id, usuarioLogin) {
 export async function deletarDocumento(id, usuarioLogin) {
   const payload = { usuarioLogin }
   const { data } = await api.post(`/documentos/${id}/deletar`, payload)
+  return data
+}
+
+export async function updateDocumentoDados(id, { titulo, tipoId, usuarioLogin }) {
+  const payload = { titulo, tipoId, usuarioLogin }
+  const { data } = await api.post(`/documentos/${id}/dados`, payload)
   return data
 }

@@ -343,10 +343,35 @@
             "
           >
             <q-card-section>
-              <div class="text-h6">Editar conteúdo</div>
-              <div class="text-caption">Atualiza o conteúdo quando o modo é Editor</div>
+              <div class="text-h6">Editar documento</div>
+              <div class="text-caption">Altere título, tipo e conteúdo (modo Editor)</div>
             </q-card-section>
             <q-card-section style="flex: 1; overflow: auto">
+              <div class="row q-col-gutter-md">
+                <div class="col-12 col-md-4">
+                  <q-input v-model="editorForm.titulo" label="Título" />
+                </div>
+                <div class="col-12 col-md-4">
+                  <q-select
+                    v-model="editorForm.tipoId"
+                    :options="tipoDocOptions"
+                    label="Tipo"
+                    emit-value
+                    map-options
+                  />
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="row items-center q-gutter-sm q-mt-xs">
+                    <q-btn
+                      dense
+                      outline
+                      color="primary"
+                      label="Escolher modelo"
+                      @click="openSelecionarModeloDialog"
+                    />
+                  </div>
+                </div>
+              </div>
               <div class="q-mt-sm">
                 <q-editor
                   v-model="editorForm.conteudo"
@@ -526,10 +551,25 @@
                 <div class="col-12 col-md-4">
                   <q-input v-model="docCreateForm.titulo" label="Título" />
                 </div>
-                <div class="col-12 col-md-4">
-                  <q-select v-model="docCreateForm.tipo" :options="tipoDocOptions" label="Tipo" />
+                <div class="col-12 col-md-3">
+                  <q-select
+                    v-model="docCreateForm.tipoId"
+                    :options="tipoDocOptions"
+                    label="Tipo"
+                    emit-value
+                    map-options
+                  />
                 </div>
-                <div class="col-12 col-md-4">
+                <div v-if="docCreateForm.modo !== 'Upload'" class="col-12 col-md-2">
+                  <q-btn
+                    dense
+                    outline
+                    color="primary"
+                    label="Escolher modelo"
+                    @click="openSelecionarModeloDialog"
+                  />
+                </div>
+                <div class="col-12 col-md-3">
                   <q-option-group
                     v-model="docCreateForm.modo"
                     :options="modoDocOptions"
@@ -554,6 +594,54 @@
             <q-card-actions align="right">
               <q-btn flat label="Cancelar" v-close-popup />
               <q-btn color="primary" label="Salvar" @click="criarDocSubmit" />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
+
+        <!-- Diálogo: Selecionar modelo de documento -->
+        <q-dialog v-model="modelosDialogOpen">
+          <q-card style="min-width: 700px; max-width: 90vw;">
+            <q-card-section class="row items-center q-pb-none">
+              <div class="text-h6">Escolher modelo de documento</div>
+              <q-space />
+              <q-chip v-if="currentTipoId" dense color="primary" text-color="white"
+                >Tipo: {{ currentTipoLabel }}</q-chip
+              >
+            </q-card-section>
+            <q-card-section>
+              <div class="text-caption">
+                Selecione um modelo. Ao aplicar, o conteúdo do editor será substituído.
+              </div>
+            </q-card-section>
+            <q-card-section>
+              <q-table
+                flat
+                bordered
+                :rows="modelosList"
+                :columns="modelosColumns"
+                row-key="id"
+                hide-bottom
+                selection="single"
+                v-model:selected="modeloSelecionado"
+                :loading="modelosLoading"
+                :pagination="{ rowsPerPage: 5 }"
+              >
+                <template #body-cell-criadoEm="props">
+                  <q-td :props="props">
+                    <span v-if="props.value">{{ formatDateTime(props.value) }}</span>
+                    <span v-else class="text-grey">—</span>
+                  </q-td>
+                </template>
+              </q-table>
+            </q-card-section>
+            <q-card-actions align="right">
+              <q-btn flat label="Cancelar" v-close-popup />
+              <q-btn
+                color="primary"
+                label="Escolher"
+                :disable="!modeloSelecionado.length"
+                @click="confirmAplicarModelo"
+              />
             </q-card-actions>
           </q-card>
         </q-dialog>
@@ -750,7 +838,9 @@ import {
   linkDocumentoToProcesso,
   assinarDocumento as assinarDocumentoService,
   deletarDocumento,
+  updateDocumentoDados as updateDocDados,
 } from 'src/services/documentosService'
+import { listModelos } from 'src/services/modelosService'
 import {
   getProcesso,
   atualizarDados,
@@ -765,7 +855,7 @@ import {
   removerAcesso,
   arquivarProcesso,
 } from 'src/services/processosService'
-import { listarSetores, listarTiposProcesso } from 'src/services/catalogService'
+import { listarSetores, listarTiposProcesso, listarTiposDocumento } from 'src/services/catalogService'
 import { listarUsuarios } from 'src/services/usuariosService'
 import { listarPartesCadastro, criarParteCadastro } from 'src/services/partesCadastroService'
 import ParteCadastroForm from 'src/components/ParteCadastroForm.vue'
@@ -842,7 +932,7 @@ const isSameSetor = computed(() => {
   return !!viewer && !!atual && viewer === atual
 })
 const editorDialogOpen = ref(false)
-const editorForm = ref({ conteudo: '' })
+const editorForm = ref({ titulo: '', tipoId: null, conteudo: '' })
 
 const editorToolbar = [
   ['bold', 'italic', 'strike', 'underline', 'removeFormat'],
@@ -853,7 +943,7 @@ const editorToolbar = [
   ['undo', 'redo'],
   ['view-source', 'fullscreen'],
 ]
-function openEditorDialog() {
+async function openEditorDialog() {
   const doc = selectedDoc.value
   if (!doc || doc.modo !== 'Editor') return
   if (doc.status === 'assinado') {
@@ -885,22 +975,51 @@ function openEditorDialog() {
       } finally {
         $q.loading?.hide()
       }
-      editorForm.value.conteudo = String(selectedDoc.value?.conteudo || '')
+      editorForm.value = {
+        titulo: String(selectedDoc.value?.titulo || ''),
+        tipoId: selectedDoc.value?.tipoId || null,
+        conteudo: String(selectedDoc.value?.conteudo || ''),
+      }
+      await loadTiposDocumentoOptions()
       editorDialogOpen.value = true
     })
     return
   }
-  editorForm.value.conteudo = String(doc.conteudo || '')
+  editorForm.value = {
+    titulo: String(doc.titulo || ''),
+    tipoId: doc.tipoId || null,
+    conteudo: String(doc.conteudo || ''),
+  }
+  await loadTiposDocumentoOptions()
   editorDialogOpen.value = true
 }
 async function editorSubmit() {
   const id = selectedDoc.value?.id
   if (!id) return
   try {
-    await updateEditorConteudo(id, editorForm.value.conteudo, getUsuarioLogin() || undefined)
+    const usuarioLogin = getUsuarioLogin() || undefined
+    const metaChanged =
+      String(editorForm.value.titulo || '') !== String(selectedDoc.value?.titulo || '') ||
+      (editorForm.value.tipoId || null) !== (selectedDoc.value?.tipoId || null)
+
+    if (metaChanged) {
+      await updateDocDados(id, {
+        titulo: editorForm.value.titulo,
+        tipoId: editorForm.value.tipoId || null,
+        usuarioLogin,
+      })
+    }
+
+    const contentChanged =
+      String(editorForm.value.conteudo || '') !== String(selectedDoc.value?.conteudo || '')
+
+    if (contentChanged) {
+      await updateEditorConteudo(id, editorForm.value.conteudo, usuarioLogin)
+    }
     $q.notify({ type: 'positive', message: 'Conteúdo atualizado' })
     editorDialogOpen.value = false
     await loadDocumento(id)
+    await loadDocumentos()
   } catch (e) {
     console.error(e)
     const msg = e?.response?.data?.error || 'Falha ao salvar conteúdo'
@@ -1778,25 +1897,102 @@ function formatDateTime(val) {
 const criarDocDialogOpen = ref(false)
 const docCreateForm = ref({
   titulo: '',
-  tipo: 'Documento',
+  tipoId: null,
   modo: 'Editor',
   arquivo: null,
   conteudo: '',
 })
-const tipoDocOptions = ['Documento', 'Requerimento', 'Ofício', 'Memorando', 'Despacho']
+// Modelos de documento (templates)
+const modelosDialogOpen = ref(false)
+const modelosLoading = ref(false)
+const modelosList = ref([])
+const modeloSelecionado = ref([])
+const modelosColumns = [
+  { name: 'nome', label: 'Nome', field: 'nome', align: 'left' },
+  { name: 'tipoNome', label: 'Tipo', field: 'tipoNome', align: 'left' },
+  { name: 'criadoEm', label: 'Criado em', field: 'criadoEm', align: 'left' },
+]
+const tipoDocOptions = ref([])
 const modoDocOptions = [
   { label: 'Editor', value: 'Editor' },
   { label: 'Upload', value: 'Upload' },
 ]
-function openCriarDocDialog() {
+async function loadTiposDocumentoOptions() {
+  try {
+    const data = await listarTiposDocumento()
+    tipoDocOptions.value = (data || []).map((td) => ({ label: td.nome, value: td.id }))
+  } catch (e) {
+    console.error(e)
+    tipoDocOptions.value = []
+  }
+}
+const currentTipoId = computed(() =>
+  editorDialogOpen.value ? editorForm.value?.tipoId || null : docCreateForm.value?.tipoId || null,
+)
+const currentTipoLabel = computed(() => {
+  const id = currentTipoId.value
+  const opt = tipoDocOptions.value.find((o) => o.value === id)
+  return opt ? opt.label : ''
+})
+async function openCriarDocDialog() {
   docCreateForm.value = {
     titulo: '',
-    tipo: 'Documento',
+    tipoId: null,
     modo: 'Editor',
     arquivo: null,
     conteudo: '',
   }
+  await loadTiposDocumentoOptions()
   criarDocDialogOpen.value = true
+}
+async function openSelecionarModeloDialog() {
+  modelosDialogOpen.value = true
+  await loadModelos()
+}
+async function loadModelos() {
+  try {
+    modelosLoading.value = true
+    const tipoId = editorDialogOpen.value
+      ? editorForm.value?.tipoId || undefined
+      : docCreateForm.value?.tipoId || undefined
+    modelosList.value = await listModelos(tipoId)
+  } catch (e) {
+    console.error(e)
+    modelosList.value = []
+  } finally {
+    modelosLoading.value = false
+  }
+}
+function confirmAplicarModelo() {
+  const selected = (modeloSelecionado.value || [])[0]
+  if (!selected) {
+    $q.notify({ type: 'warning', message: 'Selecione um modelo' })
+    return
+  }
+  const apply = () => {
+    if (editorDialogOpen.value) {
+      editorForm.value.conteudo = String(selected.conteudo || '')
+    } else {
+      docCreateForm.value.conteudo = String(selected.conteudo || '')
+    }
+    modelosDialogOpen.value = false
+    $q.notify({ type: 'positive', message: 'Modelo aplicado ao editor' })
+  }
+  const hasContent = editorDialogOpen.value
+    ? !!editorForm.value.conteudo
+    : !!docCreateForm.value.conteudo
+  if (hasContent) {
+    $q.dialog({
+      title: 'Substituir conteúdo',
+      message:
+        'Aplicar o modelo irá substituir o conteúdo atual do editor. Deseja continuar?',
+      cancel: true,
+      ok: { label: 'Prosseguir', color: 'primary' },
+      persistent: true,
+    }).onOk(apply)
+  } else {
+    apply()
+  }
 }
 async function criarDocSubmit() {
   try {
@@ -1807,7 +2003,7 @@ async function criarDocSubmit() {
     const autorLogin = getUsuarioLogin() || undefined
     const doc = await createDocumento({
       titulo: docCreateForm.value.titulo,
-      tipo: docCreateForm.value.tipo,
+      tipoId: docCreateForm.value.tipoId,
       modo: docCreateForm.value.modo,
       autorLogin,
     })

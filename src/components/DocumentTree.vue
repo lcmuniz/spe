@@ -153,7 +153,7 @@ const docNodes = computed(() => {
   const items = (props.documentos || []).map((doc) => ({
     id: doc.id,
     label: doc.titulo,
-    tipo: doc.tipo,
+    tipo: doc.tipoNome || doc.tipo,
     criadoEm: doc.criadoEm,
     icon: 'description',
     status: doc.status,
